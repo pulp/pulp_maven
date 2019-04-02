@@ -8,7 +8,7 @@ requirements = [
 
 setup(
     name='pulp-maven',
-    version='0.0.1b1',
+    version='0.1.0b1',
     description='pulp-maven plugin for the Pulp Project',
     license='GPLv2+',
     author='AUTHOR',
