@@ -21,17 +21,17 @@ after_failure:
   - sh -c "cat ~/reserved_workers-1.log"
 stages:
 - name: test
-#   - name: deploy
-#     if: tag IS present
-# jobs:
-#   include:
-#   - stage: deploy
-#     script: skip
-#     deploy:
-#       provider: pypi
-#       distributions: sdist bdist_wheel
-#       user: pulp
-#       password:
-#         secure: <<<KEY>>>
-#       on:
-#         tags: true
+   - name: deploy
+     if: tag IS present
+ jobs:
+   include:
+   - stage: deploy
+     script: skip
+     deploy:
+       provider: pypi
+       distributions: sdist bdist_wheel
+       user: pulp
+       password:
+         secure: "BlSHdy6Eeh2fuwECF/3P/OhN9KbSKrNoSWlfN/Jldje2dRz7yXyI8wALWpv1yOyps6Spp0y0hgDtmT194SkRRicSsa42ir4avtwX0Y3iXwN1nXaT1zIXy98bVo3Ckhq0Ks8criqqKR0Rd7VSBU0Ub2TFzUJuAGkTO8wzJHHwLsy+lz2l2hVk9GkHXoas2jzkV9ZrWfEYq/chnjJVOUVko3P0Lmah5g35dCXfasjrhmFEWi7piOlBEKAeIxH5vkUGjHWszf2WRg78eKhjx9Y/Z+n2hdRe0Pv9WKiy5CoPjD6z8pXTeDGiSLTsdq6GzSFXQbW2pCR1jXEV88WeETVzAEi+3HhVcmG9hMXM+N0CDdSA2TdjdH8lzVOBC9NKmVmngsCE7NELLhpMtGi7wGUIePyGr3Vsy9+4hSoviiRoqJcESVw5zy7gq4E1TzJ37nKmrigVNXBNtnO8GQtnDdMdqfqkuvn7VBGcR490QYHrIrGJ+nhvL+qE++AQdse3ueWA9jcgSB7cicisJ01XaMJn/YR+Ef6k0Aw2lTPATQuHW55dWzc/5+ay5vLaCfPSTBTcULxLHKfRacFnTE1coE8agq+QZTvA57Faza9CpjySFU9cqllXHzM1E9zPlBdcC8zX97b0pBUO/lldIag5lEKQlnnKHGwFt4Pi89B0eOZd4Zw="
+       on:
+         tags: true

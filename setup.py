@@ -8,7 +8,7 @@ requirements = [
 
 setup(
     name='pulp-maven',
-    version='0.0.1a1.dev1',
+    version='0.0.1b1',
     description='pulp-maven plugin for the Pulp Project',
     license='GPLv2+',
     author='AUTHOR',
@@ -17,7 +17,7 @@ setup(
     python_requires='>=3.6',
     install_requires=requirements,
     include_package_data=True,
-    packages=find_packages(exclude=['tests', 'tests.*']),
+    packages=find_packages(exclude=['pulp_maven.tests']),
     classifiers=(
         'License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)',
         'Operating System :: POSIX :: Linux',
