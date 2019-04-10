@@ -69,8 +69,8 @@ Run Services
 
 .. code-block:: bash
 
-   django-admin runserver
-   gunicorn pulpcore.content:server --bind 'localhost:8080' --worker-class 'aiohttp.GunicornWebWorker' -w 2
+   django-admin runserver 24817
+   gunicorn pulpcore.content:server --bind 'localhost:24816' --worker-class 'aiohttp.GunicornWebWorker' -w 2
    sudo systemctl restart pulp-resource-manager
    sudo systemctl restart pulp-worker@1
    sudo systemctl restart pulp-worker@2
@@ -79,7 +79,7 @@ Run Services
 Create a new Maven remote ``bar``
 ---------------------------------
 
-``$ http POST http://localhost:8000/pulp/api/v3/remotes/maven/maven/ name='bar' url='https://repo1.maven.org/maven2/'``
+``$ http POST http://localhost:24817/pulp/api/v3/remotes/maven/maven/ name='bar' url='https://repo1.maven.org/maven2/'``
 
 .. code:: json
 
@@ -88,12 +88,12 @@ Create a new Maven remote ``bar``
         ...
     }
 
-``$ export REMOTE_HREF=$(http :8000/pulp/api/v3/remotes/maven/maven/ | jq -r '.results[] | select(.name == "bar") | ._href')``
+``$ export REMOTE_HREF=$(http :24817/pulp/api/v3/remotes/maven/maven/ | jq -r '.results[] | select(.name == "bar") | ._href')``
 
 Create a Distribution for the Maven Remote
 ------------------------------------------
 
-``$ http POST http://localhost:8000/pulp/api/v3/distributions/ name='baz' base_path='my/local/maven' remote=$REMOTE_HREF``
+``$ http POST http://localhost:24817/pulp/api/v3/distributions/ name='baz' base_path='my/local/maven' remote=$REMOTE_HREF``
 
 
 .. code:: json
@@ -114,7 +114,7 @@ Add Pulp as mirror for Maven
         <mirror>
           <id>pulp-maven-central</id>
           <name>Local Maven Central mirror </name>
-          <url>http://localhost:8080/pulp/content/my/local/maven</url>
+          <url>http://localhost:24816/pulp/content/my/local/maven</url>
           <mirrorOf>central</mirrorOf>
         </mirror>
       </mirrors>
