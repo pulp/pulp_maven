@@ -3,35 +3,43 @@ sudo: required
 dist: xenial
 language: python
 python:
-    # python versions used in el7 SCL & supported fedora
-    - "3.6"
-    - "3.7"
-addons:
-    # postgres versions provided by el7 RHSCL (lowest supportable version)
-    postgresql: "9.6"
+  - '3.6'
+  - '3.7'
+env:
+  matrix:
+    - DB=postgres TEST=pulp
+    - DB=mariadb TEST=pulp
+matrix:
+  exclude:
+    - python: '3.6'
+      env: DB=mariadb TEST=pulp
+  fast_finish: true
 services:
-    - postgresql
-    - redis-server
-install: source .travis/install.sh
-before_script: source .travis/before_script.sh
-script: source .travis/script.sh
-after_failure:
-  - sh -c "cat ~/django_runserver.log"
-  - sh -c "cat ~/resource_manager.log"
-  - sh -c "cat ~/reserved_workers-1.log"
-stages:
-- name: test
-- name: deploy
-  if: tag IS present
-jobs:
-  include:
-  - stage: deploy
-    script: skip
-    deploy:
-      provider: pypi
-      distributions: sdist bdist_wheel
-      user: pulp
-      password:
-        secure: "hUYap9s4eLWShcYDFJSaq3NEnB1y/8tZBFDNerlMKeqAzb0ilzHVN+7UNogSd40wXZMYvrhcs4sumcyEKm8wwx4YUf9Bz00UopMsFfxTJ1rE+cr2krZVFGCwazeUd7JducTGbrK6LVTaB8BdyoDhavaxzqjPIUNaZlFBh9UYDbgkqAzYdAABz6NfF1uzp/xJfwdUZcZQZOfCF6bpxqmnSA6FqnU6foCjal8rMJVhPHvJi/71MNmJSc6iQsPmytSytzTgCRbIDARxrw5C7kxsOJX0wSTynZNgS+64Dl4w1aYmUBiX42ZVGUxYni3ttOZa3FUZdm9DhCBrPw/YKNL9WDxZ5kwfleJI90N0uzbqMrsgEf9kKnGdgeXKFJlqV/kW19w4l7+YbwXVGxMjb3U6Jv99CrIO7em0JqySpF0tKh/xwchsroV6Udw9MII9YmMyRtPS8O/VIqlkMUhE9F43d8MdBrclnxVuNKCR7wBmv/os7d7SXRikyG++iO8dJz9a6D2x/80KdD1tMp72Yj/6O1kjZvIe6BsKTwrU5JM4Pyx/E2n9CK/1Gvy2EnVVNQp9FITynq0Ly+jqqvYVfqt0/zpZ4dOQ1+AHV52RJrNoSKnWWpuZvhheZGNnXc+8f9lxHJuWAtysrwfuG5vl7Nyykzri8ws5XwDqFmMBns3LZLM="
-      on:
-        tags: true
+  - postgresql
+  - mariadb
+addons:
+  apt:
+    packages:
+      - httpie
+      - jq
+  # postgres versions provided by el7 RHSCL (lowest supportable version)
+  postgresql: '9.6'
+  mariadb: '10.3'
+before_install: .travis/before_install.sh
+install: .travis/install.sh
+before_script: .travis/before_script.sh
+script:
+  - .travis/script.sh
+#jobs:
+#  include:
+#  - stage: deploy
+#    script: skip
+#    deploy:
+#      provider: pypi
+#      distributions: sdist bdist_wheel
+#      user: <pypi username>
+#      password:
+#        secure: <encrypted pypi password>
+#      on:
+#        tags: true
+#    if: tag IS present
