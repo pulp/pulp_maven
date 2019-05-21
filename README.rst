@@ -90,10 +90,10 @@ Create a new Maven remote ``bar``
 
 ``$ export REMOTE_HREF=$(http :24817/pulp/api/v3/remotes/maven/maven/ | jq -r '.results[] | select(.name == "bar") | ._href')``
 
-Create a Distribution for the Maven Remote
-------------------------------------------
+Create a Maven Distribution for the Maven Remote
+------------------------------------------------
 
-``$ http POST http://localhost:24817/pulp/api/v3/distributions/ name='baz' base_path='my/local/maven' remote=$REMOTE_HREF``
+``$ http POST http://localhost:24817/pulp/api/v3/distributions/maven/maven/ name='baz' base_path='my/local/maven' remote=$REMOTE_HREF``
 
 
 .. code:: json

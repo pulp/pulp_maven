@@ -4,7 +4,7 @@ from os import path
 
 from django.db import models
 
-from pulpcore.plugin.models import Content, Remote
+from pulpcore.plugin.models import Content, Remote, BaseDistribution
 
 logger = getLogger(__name__)
 
@@ -81,3 +81,11 @@ class MavenRemote(Remote):
         Returns content type that is found at the relative_path.
         """
         return MavenArtifact
+
+
+class MavenDistribution(BaseDistribution):
+    """
+    Distribution for 'maven' content.
+    """
+
+    TYPE = 'maven'
