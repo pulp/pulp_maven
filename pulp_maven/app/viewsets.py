@@ -34,3 +34,13 @@ class MavenRemoteViewSet(core.RemoteViewSet):
     endpoint_name = 'maven'
     queryset = models.MavenRemote.objects.all()
     serializer_class = serializers.MavenRemoteSerializer
+
+
+class MavenDistributionViewSet(core.BaseDistributionViewSet):
+    """
+    ViewSet for Maven Distributions.
+    """
+
+    endpoint_name = 'maven'
+    queryset = models.MavenDistribution.objects.all()
+    serializer_class = serializers.MavenDistributionSerializer

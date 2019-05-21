@@ -53,3 +53,20 @@ class MavenRemoteSerializer(platform.RemoteSerializer):
     class Meta:
         fields = platform.RemoteSerializer.Meta.fields
         model = models.MavenRemote
+
+
+class MavenDistributionSerializer(platform.BaseDistributionSerializer):
+    """
+    Serializer for Maven Distributions.
+    """
+
+    remote = platform.DetailRelatedField(
+        required=False,
+        help_text=_('Remote that can be used to fetch content when using pull-through caching.'),
+        queryset=models.MavenRemote.objects.all(),
+        allow_null=True
+    )
+
+    class Meta:
+        fields = platform.BaseDistributionSerializer.Meta.fields + ('remote',)
+        model = models.MavenDistribution

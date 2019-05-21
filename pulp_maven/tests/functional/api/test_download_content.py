@@ -6,7 +6,7 @@ from random import choice
 from urllib.parse import urljoin
 
 from pulp_smash import api, config, utils
-from pulp_smash.pulp3.constants import DISTRIBUTION_PATH, REPO_PATH
+from pulp_smash.pulp3.constants import BASE_DISTRIBUTION_PATH, REPO_PATH
 from pulp_smash.pulp3.utils import (
     gen_distribution,
     gen_repo
@@ -22,6 +22,9 @@ from pulp_maven.tests.functional.constants import (
     MAVEN_REMOTE_PATH
 )
 from pulp_maven.tests.functional.utils import set_up_module as setUpModule  # noqa:F401
+
+
+MAVEN_DISTRIBUTION_PATH = urljoin(BASE_DISTRIBUTION_PATH, 'maven/maven/')
 
 
 class DownloadContentTestCase(unittest.TestCase):
@@ -62,7 +65,7 @@ class DownloadContentTestCase(unittest.TestCase):
         # Create a distribution.
         body = gen_distribution()
         body['remote'] = remote['_href']
-        response_dict = client.post(DISTRIBUTION_PATH, body)
+        response_dict = client.post(MAVEN_DISTRIBUTION_PATH, body)
         dist_task = client.get(response_dict['task'])
         distribution_href = dist_task['created_resources'][0]
         distribution = client.get(distribution_href)
