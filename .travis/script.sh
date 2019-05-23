@@ -42,7 +42,7 @@ if [ "$TEST" = 'bindings' ]; then
   sudo ./generate.sh pulp_maven python
   pip install ./pulpcore-client
   pip install ./pulp_maven-client
-  python test_bindings.py
+  python $TRAVIS_BUILD_DIR/.travis/test_bindings.py
   exit
 fi
 

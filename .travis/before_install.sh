@@ -12,8 +12,7 @@ export PULP_ROLES_PR_NUMBER=$(echo $COMMIT_MSG | grep -oP 'Required\ PR:\ https\
 pip install -r test_requirements.txt
 
 # check the commit message
-# uncomment for plugins that use pulp.plan.io as issue tracker
-# ./.travis/check_commit.sh
+./.travis/check_commit.sh
 
 # Lint code.
 flake8 --config flake8.cfg || exit 1
@@ -71,3 +70,4 @@ cp pulp_maven/.travis/postgres.yml ansible-pulp/postgres.yml
 cp pulp_maven/.travis/mariadb.yml ansible-pulp/mariadb.yml
 
 cd pulp_maven
+
