@@ -19,6 +19,7 @@ services:
     - postgresql
     - redis-server
     - mariadb
+before_install: .travis/before_install.sh
 install: source .travis/install.sh
 before_script: source .travis/before_script.sh
 script: source .travis/script.sh
