@@ -11,7 +11,7 @@
     pulp_install_plugins:
       pulp-maven:
         app_label: "maven"
-        source_dir: "/home/travis/build/pulp/pulp_maven"
+        source_dir: "$TRAVIS_BUILD_DIR"
     ansible_python_interpreter: '/opt/pyenv/shims/python3'
     pulp_user: 'travis'
     developer_user: 'travis'
