@@ -7,7 +7,7 @@ django-admin runserver 24817 >> ~/django_runserver.log 2>&1 &
 sleep 5
 
 cd $TRAVIS_BUILD_DIR
-export REPORTED_VERSION=$(http :24817/pulp/api/v3/status/ | jq --arg plugin pulpcore -r '.versions[] | select(.component == $plugin) | .version')
+export REPORTED_VERSION=$(http :24817/pulp/api/v3/status/ | jq --arg plugin pulp_maven -r '.versions[] | select(.component == $plugin) | .version')
 export DESCRIPTION="$(git describe --all --exact-match `git rev-parse HEAD`)"
 if [[ $DESCRIPTION == 'tags/'$REPORTED_VERSION ]]; then
   export VERSION=${REPORTED_VERSION}
