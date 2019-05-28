@@ -36,7 +36,7 @@ provided with pulpcore.
 Users should install from **either** PyPI or source.
 
 Install ``pulp-maven`` from source
----------------------------------
+----------------------------------
 
 .. code-block:: bash
 
@@ -47,7 +47,7 @@ Install ``pulp-maven`` from source
    pip install -e .
 
 Install ``pulp-maven`` From PyPI
--------------------------------
+--------------------------------
 
 .. code-block:: bash
 
