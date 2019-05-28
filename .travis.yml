@@ -58,4 +58,10 @@ jobs:
       - DB=postgres
       - TEST=bindings
     if: type = cron
+  - stage: publish-client-pypi
+    script: bash .travis/publish_client_pypi.sh
+    env:
+      - DB=postgres
+      - TEST=bindings
+    if: type = cron
 
