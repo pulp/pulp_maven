@@ -47,21 +47,31 @@ jobs:
       provider: pypi
       distributions: sdist bdist_wheel
       user: pulp
-      password:
-        secure: $PYPI_PASSWORD
+      password: $PYPI_PASSWORD
       on:
         tags: true
     if: tag IS present
-  - stage: publish-client-gem
+  - stage: publish-daily-client-gem
     script: bash .travis/publish_client_gem.sh
     env:
       - DB=postgres
       - TEST=bindings
     if: type = cron
-  - stage: publish-client-pypi
+  - stage: publish-daily-client-pypi
     script: bash .travis/publish_client_pypi.sh
     env:
       - DB=postgres
       - TEST=bindings
     if: type = cron
-
+  - stage: publish-client-gem
+    script: bash .travis/publish_client_gem.sh
+    env:
+      - DB=postgres
+      - TEST=bindings
+    if: tag IS present
+  - stage: publish-client-pypi
+    script: bash .travis/publish_pulp_file_client_pypi.sh
+    env:
+      - DB=postgres
+      - TEST=bindings
+    if: tag IS present
