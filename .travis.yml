@@ -12,24 +12,33 @@ env:
     - DB=postgres TEST=docs
     - DB=mariadb TEST=pulp
     
-addons:
-    # postgres versions provided by el7 RHSCL (lowest supportable version)
-    postgresql: "9.6"
+
+matrix:
+  exclude:
+    - python: '3.6'
+      env: DB=mariadb TEST=pulp
+
+  fast_finish: true
 services:
     - postgresql
     - redis-server
     - mariadb
-install: source .travis/install.sh
-before_script: source .travis/before_script.sh
-script: source .travis/script.sh
+addons:
+  apt:
+    packages:
+      - httpie
+      - jq
+  # postgres versions provided by el7 RHSCL (lowest supportable version)
+  postgresql: '9.6'
+  mariadb: '10.3'
+before_install: .travis/before_install.sh
+install: .travis/install.sh
+before_script: .travis/before_script.sh
+script: .travis/script.sh
 after_failure:
   - sh -c "cat ~/django_runserver.log"
   - sh -c "cat ~/resource_manager.log"
   - sh -c "cat ~/reserved_workers-1.log"
-stages:
-  - name: test
-  - name: deploy
-    if: tag IS present
 jobs:
   include:
   - stage: deploy
@@ -42,7 +51,7 @@ jobs:
         secure: $PYPI_PASSWORD
       on:
         tags: true
-      if: tag IS present
+    if: tag IS present
   - stage: publish-client-gem
     script: bash .travis/publish_client_gem.sh
     env:
