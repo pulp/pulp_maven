@@ -63,7 +63,7 @@ jobs:
       - TEST=bindings
     if: tag IS present
   - stage: publish-client-pypi
-    script: bash .travis/publish_pulp_file_client_pypi.sh
+    script: bash .travis/publish_client_pypi.sh
     env:
       - DB=postgres
       - TEST=bindings
