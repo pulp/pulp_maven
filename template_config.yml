@@ -21,7 +21,7 @@ deploy_to_pypi: True
 docs_test: True
 pydocstyle: True
 test_bindings: False
-pypi_username: None
+pypi_username: pulp
 travis_notifications: None
 
 
