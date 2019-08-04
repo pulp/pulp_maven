@@ -13,25 +13,22 @@ class MavenArtifactSerializer(platform.SingleArtifactContentSerializer):
     """
 
     group_id = serializers.CharField(
-        help_text=_("Group Id of the artifact's package."),
-        read_only=True,
+        help_text=_("Group Id of the artifact's package."), read_only=True
     )
     artifact_id = serializers.CharField(
-        help_text=_("Artifact Id of the artifact's package."),
-        read_only=True,
+        help_text=_("Artifact Id of the artifact's package."), read_only=True
     )
     version = serializers.CharField(
-        help_text=_("Version of the artifact's package."),
-        read_only=True,
+        help_text=_("Version of the artifact's package."), read_only=True
     )
-    filename = serializers.CharField(
-        help_text=_("Filename of the artifact."),
-        read_only=True,
-    )
+    filename = serializers.CharField(help_text=_("Filename of the artifact."), read_only=True)
 
     class Meta:
         fields = platform.SingleArtifactContentSerializer.Meta.fields + (
-            'group_id', 'artifact_id', 'version', 'filename'
+            "group_id",
+            "artifact_id",
+            "version",
+            "filename",
         )
         model = models.MavenArtifact
 
@@ -62,11 +59,11 @@ class MavenDistributionSerializer(platform.BaseDistributionSerializer):
 
     remote = platform.DetailRelatedField(
         required=False,
-        help_text=_('Remote that can be used to fetch content when using pull-through caching.'),
+        help_text=_("Remote that can be used to fetch content when using pull-through caching."),
         queryset=models.MavenRemote.objects.all(),
-        allow_null=True
+        allow_null=True,
     )
 
     class Meta:
-        fields = platform.BaseDistributionSerializer.Meta.fields + ('remote',)
+        fields = platform.BaseDistributionSerializer.Meta.fields + ("remote",)
         model = models.MavenDistribution

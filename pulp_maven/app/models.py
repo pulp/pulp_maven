@@ -16,7 +16,7 @@ class MavenArtifact(Content):
     This content type represents a single file in a Maven repository.
     """
 
-    TYPE = 'artifact'
+    TYPE = "artifact"
 
     group_id = models.CharField(max_length=255, null=False)
     artifact_id = models.CharField(max_length=255, null=False)
@@ -24,7 +24,7 @@ class MavenArtifact(Content):
     filename = models.CharField(max_length=255, null=False)
 
     class Meta:
-        unique_together = ('group_id', 'artifact_id', 'version', 'filename')
+        unique_together = ("group_id", "artifact_id", "version", "filename")
 
     @staticmethod
     def init_from_artifact_and_relative_path(artifact, relative_path):
@@ -34,17 +34,18 @@ class MavenArtifact(Content):
         Args:
             artifact (:class:`~pulpcore.plugin.models.Artifact`): An instance of an Artifact
             relative_path (str): Relative path for the artifact in the Project
+
         """
         if path.isabs(relative_path):
             raise ValueError(_("Relative path can't start with '/'."))
 
-        group_id, artifact_id, version, filename =\
-            MavenArtifact._get_group_artifact_version_filename(relative_path)
+        group_id, artifact_id, versn, f_name = MavenArtifact._get_group_artifact_version_filename(
+            relative_path
+        )
 
-        return MavenArtifact(group_id=group_id,
-                             artifact_id=artifact_id,
-                             version=version,
-                             filename=filename)
+        return MavenArtifact(
+            group_id=group_id, artifact_id=artifact_id, version=versn, filename=f_name
+        )
 
     @staticmethod
     def _get_group_artifact_version_filename(relative_path):
@@ -61,7 +62,7 @@ class MavenArtifact(Content):
         sub_path, filename = path.split(relative_path)
         sub_path, version = path.split(sub_path)
         sub_path, artifact_id = path.split(sub_path)
-        group_id = sub_path.replace('/', '.')
+        group_id = sub_path.replace("/", ".")
 
         return group_id, artifact_id, version, filename
 
@@ -73,7 +74,7 @@ class MavenRemote(Remote):
     Define any additional fields for your new importer if needed.
     """
 
-    TYPE = 'maven'
+    TYPE = "maven"
 
     @staticmethod
     def get_remote_artifact_content_type(relative_path=None):
@@ -88,4 +89,4 @@ class MavenDistribution(BaseDistribution):
     Distribution for 'maven' content.
     """
 
-    TYPE = 'maven'
+    TYPE = "maven"
