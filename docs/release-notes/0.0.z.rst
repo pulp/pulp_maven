@@ -1,5 +1,0 @@
-===================================
-maven 0.0.1 Release Notes
-===================================
-
-maven was created, and there was much rejoicing.

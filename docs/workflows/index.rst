@@ -28,6 +28,4 @@ set is the hostname and port::
 .. toctree::
    :maxdepth: 2
 
-   sync
-   upload
-   publish-host
+   cache

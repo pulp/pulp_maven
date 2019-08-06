@@ -7,24 +7,18 @@ from urllib.parse import urljoin
 
 from pulp_smash import api, config, utils
 from pulp_smash.pulp3.constants import BASE_DISTRIBUTION_PATH, REPO_PATH
-from pulp_smash.pulp3.utils import (
-    gen_distribution,
-    gen_repo
-)
+from pulp_smash.pulp3.utils import gen_distribution, gen_repo
 
-from pulp_maven.tests.functional.utils import (
-    gen_maven_remote,
-    get_maven_content_paths
-)
+from pulp_maven.tests.functional.utils import gen_maven_remote, get_maven_content_paths
 from pulp_maven.tests.functional.constants import (
     MAVEN_CONTENT_PATH,
     MAVEN_FIXTURE_URL,
-    MAVEN_REMOTE_PATH
+    MAVEN_REMOTE_PATH,
 )
 from pulp_maven.tests.functional.utils import set_up_module as setUpModule  # noqa:F401
 
 
-MAVEN_DISTRIBUTION_PATH = urljoin(BASE_DISTRIBUTION_PATH, 'maven/maven/')
+MAVEN_DISTRIBUTION_PATH = urljoin(BASE_DISTRIBUTION_PATH, "maven/maven/")
 
 
 class DownloadContentTestCase(unittest.TestCase):
@@ -54,22 +48,22 @@ class DownloadContentTestCase(unittest.TestCase):
         client = api.Client(cfg, api.json_handler)
 
         repo = client.post(REPO_PATH, gen_repo())
-        self.addCleanup(client.delete, repo['_href'])
+        self.addCleanup(client.delete, repo["_href"])
 
         body = gen_maven_remote()
         remote = client.post(MAVEN_REMOTE_PATH, body)
-        self.addCleanup(client.delete, remote['_href'])
+        self.addCleanup(client.delete, remote["_href"])
 
-        repo = client.get(repo['_href'])
+        repo = client.get(repo["_href"])
 
         # Create a distribution.
         body = gen_distribution()
-        body['remote'] = remote['_href']
+        body["remote"] = remote["_href"]
         response_dict = client.post(MAVEN_DISTRIBUTION_PATH, body)
-        dist_task = client.get(response_dict['task'])
-        distribution_href = dist_task['created_resources'][0]
+        dist_task = client.get(response_dict["task"])
+        distribution_href = dist_task["created_resources"][0]
         distribution = client.get(distribution_href)
-        self.addCleanup(client.delete, distribution['_href'])
+        self.addCleanup(client.delete, distribution["_href"])
 
         # Pick a content unit, and download it from both Pulp Fixtures…
         unit_path = choice(get_maven_content_paths(repo))
@@ -80,14 +74,14 @@ class DownloadContentTestCase(unittest.TestCase):
         # …and Pulp.
         client.response_handler = api.safe_handler
 
-        unit_url = cfg.get_hosts('api')[0].roles['api']['scheme']
-        unit_url += '://' + distribution['base_url'] + '/'
+        unit_url = cfg.get_hosts("content")[0].roles["content"]["scheme"]
+        unit_url += "://" + distribution["base_url"] + "/"
         unit_url = urljoin(unit_url, unit_path)
 
         pulp_hash = hashlib.sha256(client.get(unit_url).content).hexdigest()
         self.assertEqual(fixtures_hash, pulp_hash)
 
         # Check that Pulp created a MavenArtifact
-        content_filter_url = MAVEN_CONTENT_PATH + '?filename=custommatcher-1.0-javadoc.jar.sha1'
+        content_filter_url = MAVEN_CONTENT_PATH + "?filename=custommatcher-1.0-javadoc.jar.sha1"
         content_unit = client.get(content_filter_url)
-        self.assertEqual(1, content_unit.json()['count'])
+        self.assertEqual(1, content_unit.json()["count"])

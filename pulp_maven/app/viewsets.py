@@ -10,9 +10,7 @@ class MavenArtifactFilter(core.ContentFilter):
 
     class Meta:
         model = models.MavenArtifact
-        fields = [
-            'group_id', 'artifact_id', 'version', 'filename'
-        ]
+        fields = ["group_id", "artifact_id", "version", "filename"]
 
 
 class MavenArtifactViewSet(core.ContentViewSet):
@@ -20,7 +18,7 @@ class MavenArtifactViewSet(core.ContentViewSet):
     A ViewSet for MavenArtifact.
     """
 
-    endpoint_name = 'artifact'
+    endpoint_name = "artifact"
     queryset = models.MavenArtifact.objects.all()
     serializer_class = serializers.MavenArtifactSerializer
     filterset_class = MavenArtifactFilter
@@ -31,7 +29,7 @@ class MavenRemoteViewSet(core.RemoteViewSet):
     A ViewSet for MavenRemote.
     """
 
-    endpoint_name = 'maven'
+    endpoint_name = "maven"
     queryset = models.MavenRemote.objects.all()
     serializer_class = serializers.MavenRemoteSerializer
 
@@ -41,6 +39,6 @@ class MavenDistributionViewSet(core.BaseDistributionViewSet):
     ViewSet for Maven Distributions.
     """
 
-    endpoint_name = 'maven'
+    endpoint_name = "maven"
     queryset = models.MavenDistribution.objects.all()
     serializer_class = serializers.MavenDistributionSerializer
