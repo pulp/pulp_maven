@@ -24,6 +24,7 @@ class MavenArtifact(Content):
     filename = models.CharField(max_length=255, null=False)
 
     class Meta:
+        default_related_name = "%(app_label)s_%(model_name)s"
         unique_together = ("group_id", "artifact_id", "version", "filename")
 
     @staticmethod
@@ -83,6 +84,9 @@ class MavenRemote(Remote):
         """
         return MavenArtifact
 
+    class Meta:
+        default_related_name = "%(app_label)s_%(model_name)s"
+
 
 class MavenDistribution(BaseDistribution):
     """
@@ -90,3 +94,6 @@ class MavenDistribution(BaseDistribution):
     """
 
     TYPE = "maven"
+
+    class Meta:
+        default_related_name = "%(app_label)s_%(model_name)s"
