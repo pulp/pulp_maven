@@ -2,14 +2,14 @@
 
 from setuptools import find_packages, setup
 
-requirements = ["pulpcore-plugin~=0.1rc4"]
+requirements = ["pulpcore-plugin~=0.1rc5"]
 
 with open("README.rst") as f:
     long_description = f.read()
 
 setup(
     name="pulp-maven",
-    version="0.1.0b3.dev",
+    version="0.1.0b3",
     description="pulp-maven plugin for the Pulp Project",
     long_description=long_description,
     license="GPLv2+",
@@ -19,7 +19,7 @@ setup(
     python_requires=">=3.6",
     install_requires=requirements,
     include_package_data=True,
-    packages=find_packages(exclude=["pulp_maven.tests"]),
+    packages=find_packages(exclude=["tests"]),
     classifiers=(
         "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
         "Operating System :: POSIX :: Linux",

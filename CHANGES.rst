@@ -1,3 +1,23 @@
+0.1.0b3 (2019-09-11)
+====================
+
+
+Bugfixes
+--------
+
+- Updates serializers and tests to make plugin compatible with pulpcore-plugin 0.1.0rc4.
+  `#5217 <https://pulp.plan.io/issues/5217>`_
+
+
+Misc
+----
+
+- `#4681 <https://pulp.plan.io/issues/4681>`_
+
+
+----
+
+
 =========
 Changelog
 =========
