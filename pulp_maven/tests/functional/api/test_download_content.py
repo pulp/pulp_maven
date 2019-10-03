@@ -48,22 +48,22 @@ class DownloadContentTestCase(unittest.TestCase):
         client = api.Client(cfg, api.json_handler)
 
         repo = client.post(REPO_PATH, gen_repo())
-        self.addCleanup(client.delete, repo["_href"])
+        self.addCleanup(client.delete, repo["pulp_href"])
 
         body = gen_maven_remote()
         remote = client.post(MAVEN_REMOTE_PATH, body)
-        self.addCleanup(client.delete, remote["_href"])
+        self.addCleanup(client.delete, remote["pulp_href"])
 
-        repo = client.get(repo["_href"])
+        repo = client.get(repo["pulp_href"])
 
         # Create a distribution.
         body = gen_distribution()
-        body["remote"] = remote["_href"]
+        body["remote"] = remote["pulp_href"]
         response_dict = client.post(MAVEN_DISTRIBUTION_PATH, body)
         dist_task = client.get(response_dict["task"])
         distribution_href = dist_task["created_resources"][0]
         distribution = client.get(distribution_href)
-        self.addCleanup(client.delete, distribution["_href"])
+        self.addCleanup(client.delete, distribution["pulp_href"])
 
         # Pick a content unit, and download it from both Pulp Fixtures…
         unit_path = choice(get_maven_content_paths(repo))
