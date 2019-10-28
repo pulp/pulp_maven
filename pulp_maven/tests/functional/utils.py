@@ -65,7 +65,7 @@ def gen_maven_content_attrs(artifact):
     :returns: A semi-random dict for use in creating a content unit.
     """
     # FIXME: Add content specific metadata here.
-    return {"_artifact": artifact["_href"]}
+    return {"_artifact": artifact["pulp_href"]}
 
 
 def populate_pulp(cfg, url=MAVEN_FIXTURE_URL):
@@ -85,9 +85,9 @@ def populate_pulp(cfg, url=MAVEN_FIXTURE_URL):
         sync(cfg, remote, repo)
     finally:
         if remote:
-            client.delete(remote["_href"])
+            client.delete(remote["pulp_href"])
         if repo:
-            client.delete(repo["_href"])
+            client.delete(repo["pulp_href"])
     return client.get(MAVEN_CONTENT_PATH)["results"]
 
 

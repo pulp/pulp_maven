@@ -84,11 +84,11 @@ Create a new Maven remote ``bar``
 .. code:: json
 
     {
-        "_href": "/pulp/api/v3/remotes/maven/maven/2668a20c-3908-4767-b134-531e5145d7b7/",
+        "pulp_href": "/pulp/api/v3/remotes/maven/maven/2668a20c-3908-4767-b134-531e5145d7b7/",
         ...
     }
 
-``$ export REMOTE_HREF=$(http :24817/pulp/api/v3/remotes/maven/maven/ | jq -r '.results[] | select(.name == "bar") | ._href')``
+``$ export REMOTE_HREF=$(http :24817/pulp/api/v3/remotes/maven/maven/ | jq -r '.results[] | select(.name == "bar") | .pulp_href')``
 
 Create a Maven Distribution for the Maven Remote
 ------------------------------------------------
@@ -99,7 +99,7 @@ Create a Maven Distribution for the Maven Remote
 .. code:: json
 
     {
-        "_href": "/pulp/api/v3/distributions/67baa17e-0a9f-4302-b04a-dbf324d139de/",
+        "pulp_href": "/pulp/api/v3/distributions/67baa17e-0a9f-4302-b04a-dbf324d139de/",
        ...
     }
 
