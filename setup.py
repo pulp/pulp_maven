@@ -2,7 +2,7 @@
 
 from setuptools import find_packages, setup
 
-requirements = ["pulpcore-plugin~=0.1rc5"]
+requirements = ["pulpcore~=3.0rc7"]
 
 with open("README.rst") as f:
     long_description = f.read()
