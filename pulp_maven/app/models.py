@@ -4,9 +4,20 @@ from os import path
 
 from django.db import models
 
-from pulpcore.plugin.models import Content, Remote, BaseDistribution
+from pulpcore.plugin.models import Content, Remote, Repository, BaseDistribution
 
 logger = getLogger(__name__)
+
+
+class MavenRepository(Repository):
+    """
+    Repository for "maven" content.
+    """
+
+    TYPE = "maven"
+
+    class Meta:
+        default_related_name = "%(app_label)s_%(model_name)s"
 
 
 class MavenArtifact(Content):
