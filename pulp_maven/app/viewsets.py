@@ -34,6 +34,24 @@ class MavenRemoteViewSet(core.RemoteViewSet):
     serializer_class = serializers.MavenRemoteSerializer
 
 
+class MavenRepositoryViewSet(core.RepositoryViewSet):
+    """
+    A ViewSet for MavenRemote.
+    """
+
+    endpoint_name = "maven"
+    queryset = models.MavenRepository.objects.all()
+    serializer_class = serializers.MavenRepositorySerializer
+
+
+class MavenRepositoryVersionViewSet(core.RepositoryVersionViewSet):
+    """
+    MavenRepositoryVersion represents a single Maven repository version.
+    """
+
+    parent_viewset = MavenRepositoryViewSet
+
+
 class MavenDistributionViewSet(core.BaseDistributionViewSet):
     """
     ViewSet for Maven Distributions.

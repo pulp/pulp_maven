@@ -7,6 +7,16 @@ from pulpcore.plugin import serializers as platform
 from . import models
 
 
+class MavenRepositorySerializer(platform.RepositorySerializer):
+    """
+    Serializer for Maven Repositories.
+    """
+
+    class Meta:
+        fields = platform.RepositorySerializer.Meta.fields
+        model = models.MavenRepository
+
+
 class MavenArtifactSerializer(platform.SingleArtifactContentSerializer):
     """
     A Serializer for MavenArtifact.

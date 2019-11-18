@@ -6,19 +6,17 @@ from random import choice
 from urllib.parse import urljoin
 
 from pulp_smash import api, config, utils
-from pulp_smash.pulp3.constants import BASE_DISTRIBUTION_PATH, REPO_PATH
 from pulp_smash.pulp3.utils import gen_distribution, gen_repo
 
 from pulp_maven.tests.functional.utils import gen_maven_remote, get_maven_content_paths
 from pulp_maven.tests.functional.constants import (
     MAVEN_CONTENT_PATH,
+    MAVEN_DISTRIBUTION_PATH,
     MAVEN_FIXTURE_URL,
     MAVEN_REMOTE_PATH,
+    MAVEN_REPO_PATH,
 )
 from pulp_maven.tests.functional.utils import set_up_module as setUpModule  # noqa:F401
-
-
-MAVEN_DISTRIBUTION_PATH = urljoin(BASE_DISTRIBUTION_PATH, "maven/maven/")
 
 
 class DownloadContentTestCase(unittest.TestCase):
@@ -47,7 +45,7 @@ class DownloadContentTestCase(unittest.TestCase):
         cfg = config.get_config()
         client = api.Client(cfg, api.json_handler)
 
-        repo = client.post(REPO_PATH, gen_repo())
+        repo = client.post(MAVEN_REPO_PATH, gen_repo())
         self.addCleanup(client.delete, repo["pulp_href"])
 
         body = gen_maven_remote()
@@ -74,9 +72,7 @@ class DownloadContentTestCase(unittest.TestCase):
         # …and Pulp.
         client.response_handler = api.safe_handler
 
-        unit_url = cfg.get_hosts("content")[0].roles["content"]["scheme"]
-        unit_url += "://" + distribution["base_url"] + "/"
-        unit_url = urljoin(unit_url, unit_path)
+        unit_url = urljoin(distribution["base_url"] + "/", unit_path)
 
         pulp_hash = hashlib.sha256(client.get(unit_url).content).hexdigest()
         self.assertEqual(fixtures_hash, pulp_hash)
