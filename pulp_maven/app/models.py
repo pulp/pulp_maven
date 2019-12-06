@@ -9,17 +9,6 @@ from pulpcore.plugin.models import Content, Remote, Repository, BaseDistribution
 logger = getLogger(__name__)
 
 
-class MavenRepository(Repository):
-    """
-    Repository for "maven" content.
-    """
-
-    TYPE = "maven"
-
-    class Meta:
-        default_related_name = "%(app_label)s_%(model_name)s"
-
-
 class MavenArtifact(Content):
     """
     The Maven artifact content type.
@@ -77,6 +66,18 @@ class MavenArtifact(Content):
         group_id = sub_path.replace("/", ".")
 
         return group_id, artifact_id, version, filename
+
+
+class MavenRepository(Repository):
+    """
+    Repository for "maven" content.
+    """
+
+    TYPE = "maven"
+    CONTENT_TYPES = [MavenArtifact]
+
+    class Meta:
+        default_related_name = "%(app_label)s_%(model_name)s"
 
 
 class MavenRemote(Remote):
