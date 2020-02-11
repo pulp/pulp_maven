@@ -9,7 +9,7 @@ with open("README.rst") as f:
 
 setup(
     name="pulp-maven",
-    version="0.1.0",
+    version="0.1.1b1.dev",
     description="pulp-maven plugin for the Pulp Project",
     long_description=long_description,
     license="GPLv2+",
