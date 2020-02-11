@@ -2,14 +2,14 @@
 
 from setuptools import find_packages, setup
 
-requirements = ["pulpcore~=3.0rc7"]
+requirements = ["pulpcore>=3.1"]
 
 with open("README.rst") as f:
     long_description = f.read()
 
 setup(
     name="pulp-maven",
-    version="0.1.0b3",
+    version="0.1.1b1.dev",
     description="pulp-maven plugin for the Pulp Project",
     long_description=long_description,
     license="GPLv2+",

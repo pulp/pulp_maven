@@ -1,3 +1,0 @@
-Sync is no longer available at the {remote_href}/sync/ repository={repo_href} endpoint. Instead, use POST {repo_href}/sync/ remote={remote_href}.
-
-Creating / listing / editing / deleting file repositories is now performed on /pulp/api/v3/maven/maven/ instead of /pulp/api/v3/repositories/. Only Maven content can be present in a Maven repository, and only a Maven repository can hold Maven content.

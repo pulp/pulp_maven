@@ -1,3 +1,34 @@
+0.1.0 (2020-02-11)
+==================
+
+
+Improved Documentation
+----------------------
+
+- Change the prefix of Pulp services from pulp-* to pulpcore-*
+  `#4554 <https://pulp.plan.io/issues/4554>`_
+
+
+Deprecations and Removals
+-------------------------
+
+- Change `_id`, `_created`, `_last_updated`, `_href` to `pulp_id`, `pulp_created`, `pulp_last_updated`, `pulp_href`
+  `#5457 <https://pulp.plan.io/issues/5457>`_
+- Sync is no longer available at the {remote_href}/sync/ repository={repo_href} endpoint. Instead, use POST {repo_href}/sync/ remote={remote_href}.
+
+  Creating / listing / editing / deleting file repositories is now performed on /pulp/api/v3/maven/maven/ instead of /pulp/api/v3/repositories/. Only Maven content can be present in a Maven repository, and only a Maven repository can hold Maven content.
+  `#5625 <https://pulp.plan.io/issues/5625>`_
+
+
+Misc
+----
+
+- `#5580 <https://pulp.plan.io/issues/5580>`_, `#5625 <https://pulp.plan.io/issues/5625>`_, `#5701 <https://pulp.plan.io/issues/5701>`_
+
+
+----
+
+
 0.1.0b3 (2019-09-11)
 ====================
 
