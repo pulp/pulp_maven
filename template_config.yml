@@ -4,12 +4,14 @@
 additional_plugins: []
 black: true
 check_commit_message: true
+cherry_pick_automation: false
 coverage: false
 deploy_client_to_pypi: true
 deploy_client_to_rubygems: true
 deploy_daily_client_to_pypi: true
 deploy_daily_client_to_rubygems: true
 deploy_to_pypi: true
+docker_fixtures: false
 docs_test: true
 plugin_app_label: maven
 plugin_camel: PulpMaven
@@ -20,8 +22,11 @@ plugin_dash: pulp-maven
 plugin_dash_short: maven
 plugin_name: pulp_maven
 plugin_snake: pulp_maven
+pulp_settings: null
+pulpcore_branch: master
 pydocstyle: true
 pypi_username: pulp
+stable_branch: null
 test_bindings: false
 test_performance: false
 travis_notifications: None

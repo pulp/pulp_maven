@@ -22,6 +22,11 @@ export DESCRIPTION="$(git describe --all --exact-match `git rev-parse HEAD`)"
 if [[ $DESCRIPTION == 'tags/'$REPORTED_VERSION ]]; then
   export VERSION=${REPORTED_VERSION}
 else
+  # Daily publishing of development version (ends in ".dev" reported as ".dev0")
+  if [ "${REPORTED_VERSION%.dev*}" == "${REPORTED_VERSION}" ]; then
+    echo "Refusing to publish bindings. $REPORTED_VERSION does not contain 'dev'."
+    exit 1
+  fi
   export EPOCH="$(date +%s)"
   export VERSION=${REPORTED_VERSION}${EPOCH}
 fi
@@ -30,7 +35,7 @@ export response=$(curl --write-out %{http_code} --silent --output /dev/null http
 
 if [ "$response" == "200" ];
 then
-    exit
+  exit
 fi
 
 cd
