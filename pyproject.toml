@@ -60,8 +60,6 @@ exclude = '''
 )/
 '''
 
-
-
 [tool.check-manifest]
 ignore = [
     ".bumpversion.cfg",
@@ -73,6 +71,7 @@ ignore = [
     "docs/**",
     "flake8.cfg",
     "template_config.yml",
+    ".pep8speaks.yml",
     ".ci/**",
     ".github/**",
 ]
