@@ -1,5 +1,5 @@
-maven Plugin
-======================
+pulp-maven Plugin
+=================
 
 The ``maven`` plugin extends `pulpcore <https://pypi.python.org/pypi/pulpcore/>`__ to support
 hosting maven packages. This plugin is a part of the `Pulp Project
@@ -8,6 +8,8 @@ hosting maven packages. This plugin is a part of the `Pulp Project
 
 If you are just getting started, we recommend getting to know the :doc:`basic
 workflows<workflows/index>`.
+
+The REST API documentation for ``pulp_maven`` is available `here <restapi.html>`_.
 
 
 Table of Contents
@@ -19,6 +21,7 @@ Table of Contents
    installation
    workflows/index
    changes
+   contributing
 
 
 Indices and tables

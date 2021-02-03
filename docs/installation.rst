@@ -47,8 +47,8 @@ Make and Run Migrations
 
 .. code-block:: bash
 
-   django-admin makemigrations pulp_maven
-   django-admin migrate pulp_maven
+   pulp-manager makemigrations pulp_maven
+   pulp-manager migrate pulp_maven
 
 
 Run Services
@@ -56,7 +56,7 @@ Run Services
 
 .. code-block:: bash
 
-   django-admin runserver 24817
+   pulp-manager runserver
    gunicorn pulpcore.content:server --bind 'localhost:24816' --worker-class 'aiohttp.GunicornWebWorker' -w 2
    sudo systemctl restart pulpcore-resource-manager
    sudo systemctl restart pulpcore-worker@1
