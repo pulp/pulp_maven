@@ -1,4 +1,4 @@
-.. _pulp-maven-changes:
+.. _pulp_maven-changes:
 
 .. include:: ../CHANGES.rst
 

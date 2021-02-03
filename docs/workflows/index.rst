@@ -1,7 +1,7 @@
 Workflows
 =========
 
-If you have not yet installed the maven plugins on your Pulp installation, please follow our
+If you have not yet installed the `maven` plugin on your Pulp installation, please follow our
 :doc:`../installation`. These documents will assume you have the environment installed and
 ready to go.
 
