@@ -6,3 +6,4 @@ class PulpMavenPluginAppConfig(PulpPluginAppConfig):
 
     name = "pulp_maven.app"
     label = "maven"
+    version = "0.2.0b1.dev"

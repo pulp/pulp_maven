@@ -1,4 +1,4 @@
-# coding=utf-8
+"""Constants for Pulp Maven plugin tests."""
 from urllib.parse import urljoin
 
 from pulp_smash.pulp3.constants import (

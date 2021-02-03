@@ -1,4 +1,3 @@
-
 {# TOWNCRIER TEMPLATE #}
 {% for section, _ in sections.items() %}
 {% set underline = underlines[0] %}{% if section %}{{section}}
@@ -35,3 +34,4 @@ No significant changes.
 {% endif %}
 {% endfor %}
 ----
+

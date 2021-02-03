@@ -1,4 +1,3 @@
-# coding=utf-8
 """Utilities for tests for the maven plugin."""
 from functools import partial
 from unittest import SkipTest
