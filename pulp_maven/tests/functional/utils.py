@@ -24,7 +24,7 @@ from pulp_maven.tests.functional.constants import (
 def set_up_module():
     """Skip tests Pulp 3 isn't under test or if pulp_maven isn't installed."""
     require_pulp_3(SkipTest)
-    require_pulp_plugins({"pulp_maven"}, SkipTest)
+    require_pulp_plugins({"maven"}, SkipTest)
 
 
 def gen_maven_remote(**kwargs):
