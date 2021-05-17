@@ -52,7 +52,7 @@ class MavenRepositoryVersionViewSet(core.RepositoryVersionViewSet):
     parent_viewset = MavenRepositoryViewSet
 
 
-class MavenDistributionViewSet(core.BaseDistributionViewSet):
+class MavenDistributionViewSet(core.DistributionViewSet):
     """
     ViewSet for Maven Distributions.
     """

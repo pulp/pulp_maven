@@ -4,7 +4,7 @@ from os import path
 
 from django.db import models
 
-from pulpcore.plugin.models import Content, Remote, Repository, BaseDistribution
+from pulpcore.plugin.models import Content, Remote, Repository, Distribution
 
 logger = getLogger(__name__)
 
@@ -100,7 +100,7 @@ class MavenRemote(Remote):
         default_related_name = "%(app_label)s_%(model_name)s"
 
 
-class MavenDistribution(BaseDistribution):
+class MavenDistribution(Distribution):
     """
     Distribution for 'maven' content.
     """
