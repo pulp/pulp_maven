@@ -62,7 +62,7 @@ class MavenRemoteSerializer(platform.RemoteSerializer):
         model = models.MavenRemote
 
 
-class MavenDistributionSerializer(platform.BaseDistributionSerializer):
+class MavenDistributionSerializer(platform.DistributionSerializer):
     """
     Serializer for Maven Distributions.
     """
@@ -75,5 +75,5 @@ class MavenDistributionSerializer(platform.BaseDistributionSerializer):
     )
 
     class Meta:
-        fields = platform.BaseDistributionSerializer.Meta.fields + ("remote",)
+        fields = platform.DistributionSerializer.Meta.fields + ("remote",)
         model = models.MavenDistribution
