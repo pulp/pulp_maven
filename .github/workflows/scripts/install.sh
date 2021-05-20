@@ -34,6 +34,8 @@ cd .ci/ansible/
 TAG=ci_build
 if [[ "$TEST" == "plugin-from-pypi" ]]; then
   PLUGIN_NAME=pulp_maven
+elif [[ "${RELEASE_WORKFLOW:-false}" == "true" ]]; then
+  PLUGIN_NAME=./pulp_maven/dist/pulp_maven-$PLUGIN_VERSION-py3-none-any.whl
 else
   PLUGIN_NAME=./pulp_maven
 fi

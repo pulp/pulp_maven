@@ -30,7 +30,8 @@ export PULP_URL="http://pulp"
 
 if [[ "$TEST" = "docs" || "$TEST" = "publish" ]]; then
   cd docs
-  make PULP_URL="$PULP_URL" html
+  make PULP_URL="$PULP_URL" diagrams html
+  tar -cvf docs.tar ./_build
   cd ..
 
   echo "Validating OpenAPI schema..."
@@ -96,6 +97,8 @@ cmd_prefix bash -c "PULP_DATABASES__default__USER=postgres django-admin test --n
 
 # Run functional tests
 export PYTHONPATH=$REPO_ROOT:$REPO_ROOT/../pulpcore${PYTHONPATH:+:${PYTHONPATH}}
+
+
 
 if [[ "$TEST" == "performance" ]]; then
   if [[ -z ${PERFORMANCE_TEST+x} ]]; then

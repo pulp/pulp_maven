@@ -38,7 +38,7 @@ pydocstyle: true
 pypi_username: pulp
 redmine_project: maven-plugin
 stable_branch: null
-test_bindings: false
+test_bindings: true
 test_cli: false
 test_performance: false
 test_released_plugin_with_next_pulpcore_release: false
@@ -46,4 +46,5 @@ test_s3: false
 travis_addtl_services: []
 travis_notifications: None
 update_redmine: false
+upgrade_range: []
 

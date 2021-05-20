@@ -71,6 +71,7 @@ jobs:
           - TEST: pulp
           - TEST: docs
           - TEST: s3
+          - TEST: bindings
 
     steps:
       - uses: actions/checkout@v2
@@ -82,6 +83,9 @@ jobs:
       - uses: actions/setup-python@v2
         with:
           python-version: "3.7"
+      - uses: actions/setup-ruby@v1
+        with:
+          ruby-version: "2.6"
 
       - name: Install httpie
         run: |
