@@ -1,3 +1,30 @@
+=========
+Changelog
+=========
+
+..
+    You should *NOT* be adding new change log entries to this file, this
+    file is managed by towncrier. You *may* edit previous change logs to
+    fix problems like typo corrections or such.
+    To add a new change log entry, please see
+    https://docs.pulpproject.org/en/3.0/nightly/contributing/git.html#changelog-update
+
+    WARNING: Don't drop the next directive!
+
+.. towncrier release notes start
+
+0.3.0 (2021-05-26)
+==================
+
+Misc
+----
+
+- `#8745 <https://pulp.plan.io/issues/8745>`_
+
+
+----
+
+
 0.2.0 (2021-02-03)
 ==================
 
@@ -53,22 +80,3 @@ Misc
 ----
 
 - `#4681 <https://pulp.plan.io/issues/4681>`_
-
-
-----
-
-
-=========
-Changelog
-=========
-
-..
-    You should *NOT* be adding new change log entries to this file, this
-    file is managed by towncrier. You *may* edit previous change logs to
-    fix problems like typo corrections or such.
-    To add a new change log entry, please see
-    https://docs.pulpproject.org/en/3.0/nightly/contributing/git.html#changelog-update
-
-    WARNING: Don't drop the next directive!
-
-.. towncrier release notes start
