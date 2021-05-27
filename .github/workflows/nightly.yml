@@ -140,6 +140,9 @@ jobs:
       
 
       
+      - name: Publish nightly docs
+        run: .ci/scripts/publish_docs.sh nightly ${GITHUB_REF##*/}
+      
 
       - name: After failure
         if: failure()

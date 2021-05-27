@@ -68,8 +68,9 @@ for existing_tag in repo.tags:
 if not tag:
     tag = repo.create_tag(desired_tag, ref=commit_sha)
 
-# Checkout the desired tag
+# Checkout the desired tag and reset the tree
 repo.head.reference = tag.commit
+repo.head.reset(index=True, working_tree=True)
 
 # Check if Package is available on PyPI
 loop = asyncio.get_event_loop()

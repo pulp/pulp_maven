@@ -1,6 +1,11 @@
 #!/bin/sh
 set -e
 
-remote_repo=https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
-
-git push "${remote_repo}" $1
+curl -s -X POST https://api.github.com/repos/$GITHUB_REPOSITORY/git/refs \
+-H "Authorization: token $GITHUB_TOKEN" \
+-d @- << EOF
+{
+  "ref": "refs/tags/$1",
+  "sha": "$2"
+}
+EOF

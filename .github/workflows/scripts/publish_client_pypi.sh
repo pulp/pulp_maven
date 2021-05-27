@@ -22,9 +22,9 @@ then
   exit
 fi
 
-twine check dist/pulp-maven-client-$1.tar.gz || exit 1
+twine check dist/pulp_maven-client-$1.tar.gz || exit 1
 twine check dist/pulp_maven_client-$1-py3-none-any.whl || exit 1
-twine upload dist/pulp-maven-client-$1.tar.gz -u pulp -p $PYPI_PASSWORD
+twine upload dist/pulp_maven-client-$1.tar.gz -u pulp -p $PYPI_PASSWORD
 twine upload dist/pulp_maven_client-$1-py3-none-any.whl -u pulp -p $PYPI_PASSWORD
 
 exit $?
