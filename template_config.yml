@@ -29,10 +29,10 @@ plugin_dash_short: maven
 plugin_default_branch: master
 plugin_name: pulp_maven
 plugin_snake: pulp_maven
-publish_docs_to_pulpprojectdotorg: false
+publish_docs_to_pulpprojectdotorg: true
 pulp_settings: null
 pulpcore_branch: master
-pulpcore_pip_version_specifier: null
+pulpcore_pip_version_specifier: ~=3.12.0
 pulpprojectdotorg_key_id: null
 pydocstyle: true
 pypi_username: pulp
