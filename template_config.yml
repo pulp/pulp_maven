@@ -37,6 +37,7 @@ pulpprojectdotorg_key_id: null
 pydocstyle: true
 pypi_username: pulp
 redmine_project: maven-plugin
+release_user: pulpbot
 stable_branch: null
 test_bindings: true
 test_cli: false
