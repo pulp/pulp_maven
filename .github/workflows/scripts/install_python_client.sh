@@ -31,8 +31,8 @@ if [ "$response" == "200" ];
 then
   echo "pulp_maven client $VERSION has already been released. Installing from PyPI."
   pip install pulp-maven-client==$VERSION
-  mkdir dist
-  tar cvf ../../pulp_maven/python-client.tar ./dist
+  mkdir -p dist
+  tar cvf python-client.tar ./dist
   exit
 fi
 

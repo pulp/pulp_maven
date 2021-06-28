@@ -29,7 +29,8 @@ if [ "$response" == "200" ];
 then
   echo "pulp_maven client $VERSION has already been released. Installing from RubyGems.org."
   gem install pulp_maven_client -v $VERSION
-  touch ../pulp_maven/pulp_maven_client-$VERSION.gem
+  touch pulp_maven_client-$VERSION.gem
+  tar cvf ruby-client.tar ./pulp_maven_client-$VERSION.gem
   exit
 fi
 
@@ -39,4 +40,4 @@ cd ../pulp-openapi-generator
 cd pulp_maven-client
 gem build pulp_maven_client
 gem install --both ./pulp_maven_client-$VERSION.gem
-cp ./pulp_maven_client-$VERSION.gem ../../pulp_maven/pulp_maven_client-$VERSION.gem
+tar cvf ../../pulp_maven/ruby-client.tar ./pulp_maven_client-$VERSION.gem

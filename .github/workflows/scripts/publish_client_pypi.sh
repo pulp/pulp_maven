@@ -14,17 +14,24 @@ cd "$(dirname "$(realpath -e "$0")")"/../../..
 
 pip install twine
 
-export response=$(curl --write-out %{http_code} --silent --output /dev/null https://pypi.org/project/pulp-maven-client/$1/)
+export VERSION=$(ls dist | sed -rn 's/pulp_maven-client-(.*)\.tar.gz/\1/p')
 
-if [ "$response" == "200" ];
-then
-  echo "pulp_maven client $1 has already been released. Skipping."
+if [[ -z "$VERSION" ]]; then
+  echo "No client package found."
   exit
 fi
 
-twine check dist/pulp-maven-client-$1.tar.gz || exit 1
-twine check dist/pulp_maven_client-$1-py3-none-any.whl || exit 1
-twine upload dist/pulp-maven-client-$1.tar.gz -u pulp -p $PYPI_PASSWORD
-twine upload dist/pulp_maven_client-$1-py3-none-any.whl -u pulp -p $PYPI_PASSWORD
+export response=$(curl --write-out %{http_code} --silent --output /dev/null https://pypi.org/project/pulp-maven-client/$VERSION/)
+
+if [ "$response" == "200" ];
+then
+  echo "pulp_maven client $VERSION has already been released. Skipping."
+  exit
+fi
+
+twine check dist/pulp_maven_client-$VERSION-py3-none-any.whl || exit 1
+twine check dist/pulp_maven-client-$VERSION.tar.gz || exit 1
+twine upload dist/pulp_maven_client-$VERSION-py3-none-any.whl -u pulp -p $PYPI_PASSWORD
+twine upload dist/pulp_maven-client-$VERSION.tar.gz -u pulp -p $PYPI_PASSWORD
 
 exit $?

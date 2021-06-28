@@ -19,11 +19,18 @@ echo "---
 :rubygems_api_key: $RUBYGEMS_API_KEY" > ~/.gem/credentials
 sudo chmod 600 ~/.gem/credentials
 
-export response=$(curl --write-out %{http_code} --silent --output /dev/null https://rubygems.org/gems/pulp_maven_client/versions/$1)
+export VERSION=$(ls pulp_maven_client* | sed -rn 's/pulp_maven_client-(.*)\.gem/\1/p')
+
+if [[ -z "$VERSION" ]]; then
+  echo "No client package found."
+  exit
+fi
+
+export response=$(curl --write-out %{http_code} --silent --output /dev/null https://rubygems.org/gems/pulp_maven_client/versions/$VERSION)
 
 if [ "$response" == "200" ];
 then
-  echo "pulp_maven $VERSION has already been released. Skipping."
+  echo "pulp_maven client $VERSION has already been released. Skipping."
   exit
 fi
 
