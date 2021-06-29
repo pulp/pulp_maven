@@ -37,7 +37,7 @@ then
 fi
 
 cd ../pulp-openapi-generator
-
+rm -rf pulp_maven-client
 ./generate.sh pulp_maven python $VERSION
 cd pulp_maven-client
 python setup.py sdist bdist_wheel --python-tag py3

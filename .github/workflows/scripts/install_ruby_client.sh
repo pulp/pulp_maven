@@ -35,7 +35,7 @@ then
 fi
 
 cd ../pulp-openapi-generator
-
+rm -rf pulp_maven-client
 ./generate.sh pulp_maven ruby $VERSION
 cd pulp_maven-client
 gem build pulp_maven_client

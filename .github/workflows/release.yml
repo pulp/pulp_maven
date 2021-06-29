@@ -256,6 +256,9 @@ jobs:
       - name: Create release on GitHub
         run: bash .github/workflows/scripts/create_release_from_tag.sh ${{ github.event.inputs.release }}
 
+      - name: Cleanup repository before making changelog PR
+        run: rm -rf .lock generation pulp_maven_client* *-client.tar pulp_maven.tar python-client.tar ruby-client.tar todo web
+
       - name: Stage changelog for master branch
         run: python .github/workflows/scripts/stage-changelog-for-master.py ${{ github.event.inputs.release }}
 
