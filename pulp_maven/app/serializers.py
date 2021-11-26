@@ -71,6 +71,7 @@ class MavenDistributionSerializer(platform.DistributionSerializer):
         required=False,
         help_text=_("Remote that can be used to fetch content when using pull-through caching."),
         queryset=models.MavenRemote.objects.all(),
+        view_name="remotes-maven/maven-detail",
         allow_null=True,
     )
 
