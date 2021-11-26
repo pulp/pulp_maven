@@ -4,6 +4,7 @@
 # './plugin-template --github pulp_maven' to update this file.
 #
 # For more info visit https://github.com/pulp/plugin_template
+
 ---
 name: Release Pipeline
 on:
@@ -12,6 +13,11 @@ on:
       release:
         description: "Release tag (e.g. 3.2.1)"
         required: true
+      before_script:
+        description: |
+          Bash code to run before script.sh is executed. This should only be used when re-running
+          a workflow to correct some aspect of the docs. e.g.: git checkout origin/3.14 CHANGES.rst
+        required: false
 
 env:
   RELEASE_WORKFLOW: true
@@ -32,12 +38,12 @@ jobs:
 
       - uses: actions/setup-python@v2
         with:
-          python-version: "3.7"
+          python-version: "3.8"
 
       - name: Install python dependencies
         run: |
           echo ::group::PYDEPS
-          pip install bandersnatch bump2version gitpython python-redmine towncrier wheel
+          pip install bandersnatch bump2version gitpython python-redmine towncrier==19.9.0 wheel
           echo ::endgroup::
 
       - name: Configure Git with pulpbot name and email
@@ -46,6 +52,7 @@ jobs:
           git config --global user.email 'pulp-infra@redhat.com'
 
       - name: Setting secrets
+        
         run: python3 .github/workflows/scripts/secrets.py "$SECRETS_CONTEXT"
         env:
           SECRETS_CONTEXT: ${{ toJson(secrets) }}
@@ -72,7 +79,6 @@ jobs:
         env:
           - TEST: pulp
           - TEST: docs
-          - TEST: s3
           - TEST: bindings
 
     steps:
@@ -82,8 +88,9 @@ jobs:
 
       - uses: actions/setup-python@v2
         with:
-          python-version: "3.7"
+          python-version: "3.8"
       - uses: actions/setup-ruby@v1
+        
         with:
           ruby-version: "2.6"
 
@@ -104,15 +111,27 @@ jobs:
       - name: Install httpie
         run: |
           echo ::group::HTTPIE
-          sudo apt-get update -yq
-          sudo -E apt-get -yq --no-install-suggests --no-install-recommends install httpie
+          pip install httpie
           echo ::endgroup::
           echo "HTTPIE_CONFIG_DIR=$GITHUB_WORKSPACE/.ci/assets/httpie/" >> $GITHUB_ENV
+
+      - name: Set environment variables
+        run: |
           echo "TEST=${{ matrix.env.TEST }}" >> $GITHUB_ENV
 
       - name: Before Install
+        
         run: .github/workflows/scripts/before_install.sh
         shell: bash
+        env:
+          PY_COLORS: '1'
+          ANSIBLE_FORCE_COLOR: '1'
+          GITHUB_PULL_REQUEST: ${{ github.event.number }}
+          GITHUB_PULL_REQUEST_BODY: ${{ github.event.pull_request.body }}
+          GITHUB_BRANCH: ${{ github.head_ref }}
+          GITHUB_REPO_SLUG: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_CONTEXT: ${{ github.event.pull_request.commits_url }}
 
       - name: Install
         run: |
@@ -121,28 +140,62 @@ jobs:
         env:
           PY_COLORS: '1'
           ANSIBLE_FORCE_COLOR: '1'
+          GITHUB_PULL_REQUEST: ${{ github.event.number }}
+          GITHUB_PULL_REQUEST_BODY: ${{ github.event.pull_request.body }}
+          GITHUB_BRANCH: ${{ github.head_ref }}
+          GITHUB_REPO_SLUG: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_CONTEXT: ${{ github.event.pull_request.commits_url }}
         shell: bash
 
       - name: Before Script
-        run: |
-          .github/workflows/scripts/before_script.sh
+        
+        run: .github/workflows/scripts/before_script.sh
+        shell: bash
+        env:
+          PY_COLORS: '1'
+          ANSIBLE_FORCE_COLOR: '1'
+          GITHUB_PULL_REQUEST: ${{ github.event.number }}
+          GITHUB_PULL_REQUEST_BODY: ${{ github.event.pull_request.body }}
+          GITHUB_BRANCH: ${{ github.head_ref }}
+          GITHUB_REPO_SLUG: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_CONTEXT: ${{ github.event.pull_request.commits_url }}
+          REDIS_DISABLED: ${{ contains('', matrix.env.TEST) }}
 
       - name: Setting secrets
+        
         run: python3 .github/workflows/scripts/secrets.py "$SECRETS_CONTEXT"
         env:
           SECRETS_CONTEXT: ${{ toJson(secrets) }}
 
       - name: Install Python client
+        
         run: .github/workflows/scripts/install_python_client.sh
+        shell: bash
 
       - name: Install Ruby client
         if: ${{ env.TEST == 'bindings' || env.TEST == 'generate-bindings' }}
         run: .github/workflows/scripts/install_ruby_client.sh
+        shell: bash
+
+      - name: Additional before_script
+        run: ${{ github.event.inputs.before_script }}
+        shell: bash
 
       - name: Script
         if: ${{ env.TEST != 'generate-bindings' }}
         run: .github/workflows/scripts/script.sh
         shell: bash
+        env:
+          PY_COLORS: '1'
+          ANSIBLE_FORCE_COLOR: '1'
+          GITHUB_PULL_REQUEST: ${{ github.event.number }}
+          GITHUB_PULL_REQUEST_BODY: ${{ github.event.pull_request.body }}
+          GITHUB_BRANCH: ${{ github.head_ref }}
+          GITHUB_REPO_SLUG: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_CONTEXT: ${{ github.event.pull_request.commits_url }}
 
       - name: Upload python client packages
         if: ${{ env.TEST == 'bindings' || env.TEST == 'generate-bindings' }}
@@ -165,10 +218,11 @@ jobs:
           name: docs.tar
           path: docs/docs.tar
 
-      - name: After failure
-        if: failure()
+      - name: Logs
+        if: always()
         run: |
-          http --timeout 30 --check-status --pretty format --print hb http://pulp/pulp/api/v3/status/ || true
+          echo "Need to debug? Please check: https://github.com/marketplace/actions/debugging-with-tmate"
+          http --timeout 30 --check-status --pretty format --print hb https://pulp/pulp/api/v3/status/ || true
           docker images || true
           docker ps -a || true
           docker logs pulp || true
@@ -192,11 +246,17 @@ jobs:
 
       - uses: actions/setup-python@v2
         with:
-          python-version: "3.7"
+          python-version: "3.8"
 
       - uses: actions/setup-ruby@v1
+        
         with:
           ruby-version: "2.6"
+
+      - name: Configure Git with pulpbot name and email
+        run: |
+          git config --global user.name 'pulpbot'
+          git config --global user.email 'pulp-infra@redhat.com'
 
       - name: Untar repository
         run: |
@@ -213,6 +273,7 @@ jobs:
           git checkout "origin/${GITHUB_REF##*/}" -- .github
 
       - name: Setting secrets
+        
         run: python3 .github/workflows/scripts/secrets.py "$SECRETS_CONTEXT"
         env:
           SECRETS_CONTEXT: ${{ toJson(secrets) }}
@@ -257,8 +318,13 @@ jobs:
       - name: Publish client to rubygems
         run: bash .github/workflows/scripts/publish_client_gem.sh
 
+      
+
       - name: Create release on GitHub
         run: bash .github/workflows/scripts/create_release_from_tag.sh ${{ github.event.inputs.release }}
+
+      - name: Cleanup repository before making changelog PR
+        run: rm -rf .lock generation pulp_maven_client* *-client.tar pulp_maven.tar todo web docs.tar
 
       - name: Stage changelog for master branch
         run: python .github/workflows/scripts/stage-changelog-for-master.py ${{ github.event.inputs.release }}
@@ -266,13 +332,15 @@ jobs:
       - name: Create Pull Request for Changelog
         uses: peter-evans/create-pull-request@v3
         with:
+          token: ${{ secrets.RELEASE_TOKEN }}
           committer: pulpbot <pulp-infra@redhat.com>
           author: pulpbot <pulp-infra@redhat.com>
-          branch: ${{ github.event.inputs.release }}-changelog
+          branch: changelog/${{ github.event.inputs.release }}
           base: master
-          title: 'Building changelog for ${{ github.event.inputs.release }}'
+          title: 'Cherry pick ${{ github.event.inputs.release }} changelog'
           body: '[noissue]'
           commit-message: |
-            Building changelog for ${{ github.event.inputs.release }}
+            ${{ github.event.inputs.release }} changelog
+
             [noissue]
           delete-branch: true
