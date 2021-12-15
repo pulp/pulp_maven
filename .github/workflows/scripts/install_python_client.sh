@@ -9,14 +9,14 @@
 
 set -euv
 
-export PULP_URL="${PULP_URL:-http://pulp}"
+export PULP_URL="${PULP_URL:-https://pulp}"
 
 # make sure this script runs at the repo root
 cd "$(dirname "$(realpath -e "$0")")"/../../..
 
 pip install twine wheel
 
-export REPORTED_VERSION=$(http pulp/pulp/api/v3/status/ | jq --arg plugin maven --arg legacy_plugin pulp_maven -r '.versions[] | select(.component == $plugin or .component == $legacy_plugin) | .version')
+export REPORTED_VERSION=$(http $PULP_URL/pulp/api/v3/status/ | jq --arg plugin maven --arg legacy_plugin pulp_maven -r '.versions[] | select(.component == $plugin or .component == $legacy_plugin) | .version')
 export DESCRIPTION="$(git describe --all --exact-match `git rev-parse HEAD`)"
 if [[ $DESCRIPTION == 'tags/'$REPORTED_VERSION ]]; then
   export VERSION=${REPORTED_VERSION}
@@ -41,6 +41,6 @@ rm -rf pulp_maven-client
 ./generate.sh pulp_maven python $VERSION
 cd pulp_maven-client
 python setup.py sdist bdist_wheel --python-tag py3
-pip install dist/pulp_maven_client-$VERSION-py3-none-any.whl
+find . -name "*.whl" -exec pip install {} \;
 tar cvf ../../pulp_maven/python-client.tar ./dist
 exit $?
