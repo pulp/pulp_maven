@@ -27,7 +27,11 @@ else
   BRANCH="${GITHUB_REF##refs/tags/}"
 fi
 
+COMMIT_MSG=$(git log --format=%B --no-merges -1)
+export COMMIT_MSG
+
 if [[ "$TEST" == "upgrade" ]]; then
+  pip install -r functest_requirements.txt
   git checkout -b ci_upgrade_test
   cp -R .github /tmp/.github
   cp -R .ci /tmp/.ci
@@ -35,14 +39,12 @@ if [[ "$TEST" == "upgrade" ]]; then
   rm -rf .ci .github
   cp -R /tmp/.github .
   cp -R /tmp/.ci .
-  # Pin deps
-  sed -i "s/~/=/g" requirements.txt
 fi
 
 if [[ "$TEST" == "plugin-from-pypi" ]]; then
   COMPONENT_VERSION=$(http https://pypi.org/pypi/pulp-maven/json | jq -r '.info.version')
 else
-  COMPONENT_VERSION=$(sed -ne "s/\s*version=['\"]\(.*\)['\"][\s,]*/\1/p" setup.py)
+  COMPONENT_VERSION=$(sed -ne "s/\s*version.*=.*['\"]\(.*\)['\"][\s,]*/\1/p" setup.py)
 fi
 mkdir .ci/ansible/vars || true
 echo "---" > .ci/ansible/vars/main.yaml
@@ -53,9 +55,6 @@ echo "component_version: '${COMPONENT_VERSION}'" >> .ci/ansible/vars/main.yaml
 export PRE_BEFORE_INSTALL=$PWD/.github/workflows/scripts/pre_before_install.sh
 export POST_BEFORE_INSTALL=$PWD/.github/workflows/scripts/post_before_install.sh
 
-COMMIT_MSG=$(git log --format=%B --no-merges -1)
-export COMMIT_MSG
-
 if [ -f $PRE_BEFORE_INSTALL ]; then
   source $PRE_BEFORE_INSTALL
 fi
@@ -65,7 +64,7 @@ if [[ -n $(echo -e $COMMIT_MSG | grep -P "Required PR:.*" | grep -v "https") ]];
   exit 1
 fi
 
-if [ "$GITHUB_EVENT_NAME" = "pull_request" ] || [ "${BRANCH_BUILD}" = "1" -a "${BRANCH}" != "master" ]
+if [ "$GITHUB_EVENT_NAME" = "pull_request" ] || [ "${BRANCH_BUILD}" = "1" -a "${BRANCH}" != "main" ]
 then
   export PULPCORE_PR_NUMBER=$(echo $COMMIT_MSG | grep -oP 'Required\ PR:\ https\:\/\/github\.com\/pulp\/pulpcore\/pull\/(\d+)' | awk -F'/' '{print $7}')
   export PULP_SMASH_PR_NUMBER=$(echo $COMMIT_MSG | grep -oP 'Required\ PR:\ https\:\/\/github\.com\/pulp\/pulp-smash\/pull\/(\d+)' | awk -F'/' '{print $7}')
@@ -106,9 +105,10 @@ fi
 
 
 
-git clone --depth=1 https://github.com/pulp/pulpcore.git --branch master
+git clone --depth=1 https://github.com/pulp/pulpcore.git --branch main
 
 cd pulpcore
+
 if [ -n "$PULPCORE_PR_NUMBER" ]; then
   git fetch --depth=1 origin pull/$PULPCORE_PR_NUMBER/head:$PULPCORE_PR_NUMBER
   git checkout $PULPCORE_PR_NUMBER
@@ -123,13 +123,16 @@ pip install docker netaddr boto3 ansible
 
 for i in {1..3}
 do
-  ansible-galaxy collection install amazon.aws && s=0 && break || s=$? && sleep 3
+  ansible-galaxy collection install "amazon.aws:1.5.0" && s=0 && break || s=$? && sleep 3
 done
 if [[ $s -gt 0 ]]
 then
   echo "Failed to install amazon.aws"
   exit $s
 fi
+# Patch DJANGO_ALLOW_ASYNC_UNSAFE out of the pulpcore tasking_system
+# Don't let it fail. Be opportunistic.
+sed -i -e '/DJANGO_ALLOW_ASYNC_UNSAFE/d' pulpcore/pulpcore/tasking/entrypoint.py || true
 
 cd pulp_maven
 
