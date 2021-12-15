@@ -2,6 +2,7 @@
 import hashlib
 import unittest
 from random import choice
+from time import sleep
 from urllib.parse import urljoin
 
 from pulp_smash import api, config, utils
@@ -75,6 +76,9 @@ class DownloadContentTestCase(unittest.TestCase):
 
         pulp_hash = hashlib.sha256(client.get(unit_url).content).hexdigest()
         self.assertEqual(fixtures_hash, pulp_hash)
+
+        # Needed when object storage is used as the storage backend.
+        sleep(1)
 
         # Check that Pulp created a MavenArtifact
         content_filter_url = MAVEN_CONTENT_PATH + "?filename=custommatcher-1.0-javadoc.jar.sha1"
