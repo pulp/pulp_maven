@@ -19,9 +19,9 @@ from bandersnatch.configuration import BandersnatchConfig
 from git import Repo
 
 from packaging.requirements import Requirement
+from pathlib import Path
 
 from collections import defaultdict
-from pathlib import Path
 from redminelib import Redmine
 from redminelib.exceptions import ResourceAttrError, ResourceSetIndexError
 import json
