@@ -58,14 +58,14 @@ single_commit_check: true
 stable_branch: null
 sync_ci: true
 tasking_allow_async_unsafe: false
-test_azure: false
+test_azure: true
 test_bindings: true
 test_cli: false
 test_deprecations: true
 test_performance: false
 test_released_plugin_with_next_pulpcore_release: false
 test_reroute: true
-test_s3: false
+test_s3: true
 travis_addtl_services: []
 travis_notifications: None
 update_github: true
