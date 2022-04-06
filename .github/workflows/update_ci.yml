@@ -4,6 +4,8 @@
 # './plugin-template --github pulp_maven' to update this file.
 #
 # For more info visit https://github.com/pulp/plugin_template
+
+
 ---
 name: CI Update
 on:
@@ -11,7 +13,7 @@ on:
     # * is a special character in YAML so you have to quote this string
     # runs at 2:30 UTC every Sunday
     - cron: '30 2 * * 0'
-  
+
   workflow_dispatch:
 
 jobs:
@@ -23,34 +25,34 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
+        with:
+          # by default, it uses a depth of 1
+          # this fetches all history so that we can read each commit
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v2
+        with:
+          python-version: "3.8"
+
+      - name: Install python dependencies
+        run: |
+          echo ::group::PYDEPS
+          pip install gitpython requests packaging
+          echo ::endgroup::
+
+      - name: Configure Git with pulpbot name and email
+        run: |
+          git config --global user.name 'pulpbot'
+          git config --global user.email 'pulp-infra@redhat.com'
 
       - name: Set short_ref
         id: vars
         run: echo ::set-output name=short_ref::${GITHUB_REF#refs/*/}
 
       - name: Dispatching
-        if: github.event_name == 'schedule'
-        run: |
-          for version in $(git ls-remote --heads https://github.com/pulp/pulp_maven.git | grep -o "[[:digit:]]\.[[:digit:]]*" | sort -V | tail -5)
-            do
-              echo $version
-              echo "{\"ref\": \"${version}\"}" > data.json
-              cat data.json
-              curl \
-                -X POST \
-                -H "Accept: application/vnd.github.v3+json" \
-                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-                https://api.github.com/repos/pulp/pulp_maven/actions/workflows/update_ci.yml/dispatches \
-                -d @data.json
-            done
-            rm data.json
+        run: python .ci/scripts/update_ci_branches.py None
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-
-      - name: Configure Git with pulpbot name and email
-        run: |
-          git config --global user.name 'pulpbot'
-          git config --global user.email 'pulp-infra@redhat.com'
 
       - name: Run update
         run: |
