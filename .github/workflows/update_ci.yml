@@ -13,7 +13,7 @@ on:
     # * is a special character in YAML so you have to quote this string
     # runs at 2:30 UTC every Sunday
     - cron: '30 2 * * 0'
-
+  
   workflow_dispatch:
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
       - name: Install python dependencies
         run: |
           echo ::group::PYDEPS
-          pip install gitpython requests packaging
+          pip install gitpython requests packaging jinja2 pyyaml
           echo ::endgroup::
 
       - name: Configure Git with pulpbot name and email
@@ -50,6 +50,7 @@ jobs:
         run: echo ::set-output name=short_ref::${GITHUB_REF#refs/*/}
 
       - name: Dispatching
+        if: github.event_name == 'schedule'
         run: python .ci/scripts/update_ci_branches.py None
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
