@@ -7,3 +7,4 @@ class PulpMavenPluginAppConfig(PulpPluginAppConfig):
     name = "pulp_maven.app"
     label = "maven"
     version = "0.4.0.dev"
+    python_package_name = "pulp-maven"
