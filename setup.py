@@ -7,7 +7,7 @@ with open("requirements.txt") as requirements:
 
 setup(
     name="pulp-maven",
-    version="0.3.3",
+    version="0.3.4.dev",
     description="pulp-maven plugin for the Pulp Project",
     license="GPLv2+",
     author="Pulp Project Developers",
