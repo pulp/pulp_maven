@@ -28,7 +28,7 @@ docker_fixtures: false
 docs_test: true
 flake8: true
 github_org: pulp
-issue_tracker: redmine
+issue_tracker: github
 keep_ci_update_for_latest_branches: 5
 keep_ci_update_since_branch: null
 noissue_marker: '[noissue]'
@@ -55,7 +55,6 @@ pulpprojectdotorg_key_id: null
 pydocstyle: true
 pypi_username: pulp
 python_version: '3.8'
-redmine_project: maven-plugin
 release_email: pulp-infra@redhat.com
 release_user: pulpbot
 run_pulpcore_tests_for_plugins: true
