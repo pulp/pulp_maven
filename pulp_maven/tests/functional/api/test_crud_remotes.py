@@ -1,122 +1,69 @@
 """Tests that CRUD maven remotes."""
-import unittest
+import json
+import uuid
 
-from requests.exceptions import HTTPError
+import pytest
 
-from pulp_smash import api, config, utils
-
-from pulp_maven.tests.functional.constants import MAVEN_REMOTE_PATH
-from pulp_maven.tests.functional.utils import skip_if, gen_maven_remote
-from pulp_maven.tests.functional.utils import set_up_module as setUpModule  # noqa:F401
+from pulpcore.client.pulp_maven.exceptions import ApiException
 
 
-class CRUDRemotesTestCase(unittest.TestCase):
-    """CRUD remotes."""
+@pytest.mark.parallel
+def test_remote_crud_workflow(maven_remote_api_client, gen_object_with_cleanup, monitor_task):
+    remote_data = {"name": str(uuid.uuid4()), "url": "http://example.com"}
+    remote = gen_object_with_cleanup(maven_remote_api_client, remote_data)
+    assert remote.url == remote_data["url"]
+    assert remote.name == remote_data["name"]
 
-    @classmethod
-    def setUpClass(cls):
-        """Create class-wide variables."""
-        cls.cfg = config.get_config()
-        cls.client = api.Client(cls.cfg, api.json_handler)
+    with pytest.raises(ApiException) as exc:
+        gen_object_with_cleanup(maven_remote_api_client, remote_data)
+    assert exc.value.status == 400
+    assert json.loads(exc.value.body) == {"name": ["This field must be unique."]}
 
-    def test_01_create_remote(self):
-        """Create a remote."""
-        body = _gen_verbose_remote()
-        type(self).remote = self.client.post(MAVEN_REMOTE_PATH, body)
-        for key in ("username", "password"):
-            del body[key]
-        for key, val in body.items():
-            with self.subTest(key=key):
-                self.assertEqual(self.remote[key], val)
+    update_response = maven_remote_api_client.partial_update(
+        remote.pulp_href, {"url": "https://example.com"}
+    )
+    task = monitor_task(update_response.task)
+    assert task.created_resources == []
 
-    @skip_if(bool, "remote", False)
-    def test_02_create_same_name(self):
-        """Try to create a second remote with an identical name.
+    remote = maven_remote_api_client.read(remote.pulp_href)
+    assert remote.url == "https://example.com"
 
-        See: `Pulp Smash #1055
-        <https://github.com/PulpQE/pulp-smash/issues/1055>`_.
-        """
-        body = gen_maven_remote()
-        body["name"] = self.remote["name"]
-        with self.assertRaises(HTTPError):
-            self.client.post(MAVEN_REMOTE_PATH, body)
+    all_new_remote_data = {"name": str(uuid.uuid4()), "url": "http://example.com"}
+    update_response = maven_remote_api_client.update(remote.pulp_href, all_new_remote_data)
+    task = monitor_task(update_response.task)
+    assert task.created_resources == []
 
-    @skip_if(bool, "remote", False)
-    def test_02_read_remote(self):
-        """Read a remote by its href."""
-        remote = self.client.get(self.remote["pulp_href"])
-        for key, val in self.remote.items():
-            with self.subTest(key=key):
-                self.assertEqual(remote[key], val)
-
-    @skip_if(bool, "remote", False)
-    def test_02_read_remotes(self):
-        """Read a remote by its name."""
-        page = self.client.get(MAVEN_REMOTE_PATH, params={"name": self.remote["name"]})
-        self.assertEqual(len(page["results"]), 1)
-        for key, val in self.remote.items():
-            with self.subTest(key=key):
-                self.assertEqual(page["results"][0][key], val)
-
-    @skip_if(bool, "remote", False)
-    def test_03_partially_update(self):
-        """Update a remote using HTTP PATCH."""
-        body = _gen_verbose_remote()
-        self.client.patch(self.remote["pulp_href"], body)
-        for key in ("username", "password"):
-            del body[key]
-        type(self).remote = self.client.get(self.remote["pulp_href"])
-        for key, val in body.items():
-            with self.subTest(key=key):
-                self.assertEqual(self.remote[key], val)
-
-    @skip_if(bool, "remote", False)
-    def test_04_fully_update(self):
-        """Update a remote using HTTP PUT."""
-        body = _gen_verbose_remote()
-        self.client.put(self.remote["pulp_href"], body)
-        for key in ("username", "password"):
-            del body[key]
-        type(self).remote = self.client.get(self.remote["pulp_href"])
-        for key, val in body.items():
-            with self.subTest(key=key):
-                self.assertEqual(self.remote[key], val)
-
-    @skip_if(bool, "remote", False)
-    def test_05_delete(self):
-        """Delete a remote."""
-        self.client.delete(self.remote["pulp_href"])
-        with self.assertRaises(HTTPError):
-            self.client.get(self.remote["pulp_href"])
+    remote = maven_remote_api_client.read(remote.pulp_href)
+    assert remote.name == all_new_remote_data["name"]
+    assert remote.url == all_new_remote_data["url"]
 
 
-class CreateRemoteNoURLTestCase(unittest.TestCase):
-    """Verify whether is possible to create a remote without a URL."""
+@pytest.mark.parallel
+def test_create_maven_remote_with_invalid_parameter(
+    maven_remote_api_client, gen_object_with_cleanup
+):
+    unexpected_field_remote_data = {
+        "name": str(uuid.uuid4()),
+        "url": "http://example.com",
+        "foo": "bar",
+    }
 
-    def test_all(self):
-        """Verify whether is possible to create a remote without a URL.
-
-        This test targets the following issues:
-
-        * `Pulp #3395 <https://pulp.plan.io/issues/3395>`_
-        * `Pulp Smash #984 <https://github.com/PulpQE/pulp-smash/issues/984>`_
-        """
-        body = gen_maven_remote()
-        del body["url"]
-        with self.assertRaises(HTTPError):
-            api.Client(config.get_config()).post(MAVEN_REMOTE_PATH, body)
+    with pytest.raises(ApiException) as exc:
+        gen_object_with_cleanup(maven_remote_api_client, unexpected_field_remote_data)
+    assert exc.value.status == 400
+    assert json.loads(exc.value.body) == {"foo": ["Unexpected field"]}
 
 
-def _gen_verbose_remote():
-    """Return a semi-random dict for use in defining a remote.
+@pytest.mark.parallel
+def test_create_maven_remote_without_url(maven_remote_api_client, gen_object_with_cleanup):
+    with pytest.raises(ApiException) as exc:
+        gen_object_with_cleanup(maven_remote_api_client, {"name": str(uuid.uuid4())})
+    assert exc.value.status == 400
+    assert json.loads(exc.value.body) == {"url": ["This field is required."]}
 
-    For most tests, it's desirable to create remotes with as few attributes
-    as possible, so that the tests can specifically target and attempt to break
-    specific features. This module specifically targets remotes, so it makes
-    sense to provide as many attributes as possible.
 
-    Note that 'username' and 'password' are write-only attributes.
-    """
-    attrs = gen_maven_remote()
-    attrs.update({"password": utils.uuid4(), "username": utils.uuid4()})
-    return attrs
+@pytest.mark.parallel
+def test_default_remote_policy_immediate(maven_remote_api_client, gen_object_with_cleanup):
+    remote_data = {"name": str(uuid.uuid4()), "url": "http://example.com"}
+    remote = gen_object_with_cleanup(maven_remote_api_client, remote_data)
+    assert remote.policy == "immediate"
