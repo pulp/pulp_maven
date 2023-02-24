@@ -29,3 +29,4 @@ set is the hostname and port::
    :maxdepth: 2
 
    cache
+   upload
