@@ -10,6 +10,8 @@ from pulpcore.client.pulp_maven import (
     RepositoriesMavenApi,
 )
 
+from pulp_maven.tests.functional.utils import generate_jar
+
 
 @pytest.fixture(scope="session")
 def maven_client(_api_client_set, bindings_cfg):
@@ -69,3 +71,21 @@ def maven_remote_factory(maven_remote_api_client, gen_object_with_cleanup):
         return gen_object_with_cleanup(maven_remote_api_client, kwargs)
 
     yield _maven_remote_factory
+
+
+@pytest.fixture
+def random_maven_artifact_factory(tmp_path):
+    """A factory to generate a random maven artifact."""
+
+    def _random_maven_artifact_factory(**kwargs):
+        kwargs.setdefault("group_id", f"org.{str(uuid.uuid4())}")
+        kwargs.setdefault("artifact_id", str(uuid.uuid4()))
+        kwargs.setdefault("version", str(uuid.uuid4()))
+        kwargs.setdefault("filename", f"{str(uuid.uuid4())}.jar")
+        full_path = tmp_path / kwargs["filename"]
+        _, checksum = generate_jar(full_path)
+        kwargs["full_path"] = full_path
+        kwargs["sha256"] = checksum
+        return kwargs
+
+    return _random_maven_artifact_factory

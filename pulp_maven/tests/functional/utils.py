@@ -3,6 +3,8 @@
 import aiohttp
 import asyncio
 from dataclasses import dataclass
+import os
+import hashlib
 
 
 @dataclass
@@ -32,3 +34,13 @@ async def _download_file(url, auth=None, headers=None):
     async with aiohttp.ClientSession(auth=auth, raise_for_status=True) as session:
         async with session.get(url, verify_ssl=False, headers=headers) as response:
             return Download(body=await response.read(), response_obj=response)
+
+
+def generate_jar(full_path, size=1024, relative_path=None):
+    """Generate a random file."""
+    with open(full_path, "wb") as fout:
+        contents = os.urandom(size)
+        fout.write(contents)
+        fout.flush()
+    digest = hashlib.sha256(contents).hexdigest()
+    return full_path, digest
