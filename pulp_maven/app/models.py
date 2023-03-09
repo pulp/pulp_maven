@@ -9,45 +9,7 @@ from pulpcore.plugin.models import Content, Remote, Repository, Distribution
 logger = getLogger(__name__)
 
 
-class MavenArtifact(Content):
-    """
-    The Maven artifact content type.
-
-    This content type represents a single file in a Maven repository.
-    """
-
-    TYPE = "artifact"
-
-    group_id = models.CharField(max_length=255, null=False)
-    artifact_id = models.CharField(max_length=255, null=False)
-    version = models.CharField(max_length=255, null=False)
-    filename = models.CharField(max_length=255, null=False)
-
-    class Meta:
-        default_related_name = "%(app_label)s_%(model_name)s"
-        unique_together = ("group_id", "artifact_id", "version", "filename")
-
-    @staticmethod
-    def init_from_artifact_and_relative_path(artifact, relative_path):
-        """
-        Returns an instance of Project for this artifact.
-
-        Args:
-            artifact (:class:`~pulpcore.plugin.models.Artifact`): An instance of an Artifact
-            relative_path (str): Relative path for the artifact in the Project
-
-        """
-        if path.isabs(relative_path):
-            raise ValueError(_("Relative path can't start with '/'."))
-
-        group_id, artifact_id, versn, f_name = MavenArtifact._get_group_artifact_version_filename(
-            relative_path
-        )
-
-        return MavenArtifact(
-            group_id=group_id, artifact_id=artifact_id, version=versn, filename=f_name
-        )
-
+class MavenContentMixin:
     @staticmethod
     def _get_group_artifact_version_filename(relative_path):
         """
@@ -68,13 +30,98 @@ class MavenArtifact(Content):
         return group_id, artifact_id, version, filename
 
 
+class MavenArtifact(MavenContentMixin, Content):
+    """
+    The Maven artifact content type.
+
+    This content type represents a single file in a Maven repository.
+    """
+
+    TYPE = "artifact"
+
+    group_id = models.CharField(max_length=255, null=False)
+    artifact_id = models.CharField(max_length=255, null=False)
+    version = models.CharField(max_length=255, null=False)
+    filename = models.CharField(max_length=255, null=False)
+
+    class Meta:
+        default_related_name = "%(app_label)s_%(model_name)s"
+        unique_together = ("group_id", "artifact_id", "version", "filename")
+
+    @staticmethod
+    def init_from_artifact_and_relative_path(artifact, relative_path):
+        """
+        Returns an instance of MavenArtifact for this artifact.
+
+        Args:
+            artifact (:class:`~pulpcore.plugin.models.Artifact`): An instance of an Artifact
+            relative_path (str): Relative path for the artifact in the Project
+
+        """
+        if path.isabs(relative_path):
+            raise ValueError(_("Relative path can't start with '/'."))
+
+        group_id, artifact_id, version, f_name = MavenArtifact._get_group_artifact_version_filename(
+            relative_path
+        )
+
+        return MavenArtifact(
+            group_id=group_id, artifact_id=artifact_id, version=version, filename=f_name
+        )
+
+
+class MavenMetadata(MavenContentMixin, Content):
+    """
+    The Maven Metadata content type.
+
+    This content type represents a pom file or a pom.<checksum_type> file in a Maven repository.
+    """
+
+    TYPE = "metadata"
+
+    group_id = models.CharField(max_length=255, null=False)
+    artifact_id = models.CharField(max_length=255, null=False)
+    version = models.CharField(max_length=255, null=False)
+    filename = models.CharField(max_length=255, null=False)
+    sha256 = models.CharField(max_length=64, null=False, unique=True, db_index=True)
+
+    class Meta:
+        default_related_name = "%(app_label)s_%(model_name)s"
+        unique_together = ("group_id", "artifact_id", "version", "filename", "sha256")
+
+    @staticmethod
+    def init_from_artifact_and_relative_path(artifact, relative_path):
+        """
+        Returns an instance of MavenMetadata for this artifact.
+
+        Args:
+            artifact (:class:`~pulpcore.plugin.models.Artifact`): An instance of an Artifact
+            relative_path (str): Relative path for the artifact in the Project
+
+        """
+        if path.isabs(relative_path):
+            raise ValueError(_("Relative path can't start with '/'."))
+
+        group_id, artifact_id, version, f_name = MavenMetadata._get_group_artifact_version_filename(
+            relative_path
+        )
+
+        return MavenMetadata(
+            group_id=group_id,
+            artifact_id=artifact_id,
+            version=version,
+            filename=f_name,
+            sha256=artifact.sha256,
+        )
+
+
 class MavenRepository(Repository):
     """
     Repository for "maven" content.
     """
 
     TYPE = "maven"
-    CONTENT_TYPES = [MavenArtifact]
+    CONTENT_TYPES = [MavenArtifact, MavenMetadata]
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"

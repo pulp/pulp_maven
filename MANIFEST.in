@@ -7,3 +7,5 @@ include COPYRIGHT
 include functest_requirements.txt
 include test_requirements.txt
 include unittest_requirements.txt
+recursive-include pulp_maven *.java
+recursive-include pulp_maven *.xml

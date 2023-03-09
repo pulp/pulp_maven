@@ -1,50 +1,65 @@
-from pulpcore.plugin import viewsets as core
+from pulpcore.plugin.viewsets import (
+    ContentFilter,
+    ContentViewSet,
+    DistributionViewSet,
+    RemoteViewSet,
+    RepositoryVersionViewSet,
+    RepositoryViewSet,
+)
 
-from . import models, serializers
+
+from pulp_maven.app.models import MavenArtifact, MavenRemote, MavenRepository, MavenDistribution
+
+from pulp_maven.app.serializers import (
+    MavenArtifactSerializer,
+    MavenRemoteSerializer,
+    MavenRepositorySerializer,
+    MavenDistributionSerializer,
+)
 
 
-class MavenArtifactFilter(core.ContentFilter):
+class MavenArtifactFilter(ContentFilter):
     """
     FilterSet for MavenArtifact.
     """
 
     class Meta:
-        model = models.MavenArtifact
+        model = MavenArtifact
         fields = ["group_id", "artifact_id", "version", "filename"]
 
 
-class MavenArtifactViewSet(core.ContentViewSet):
+class MavenArtifactViewSet(ContentViewSet):
     """
     A ViewSet for MavenArtifact.
     """
 
     endpoint_name = "artifact"
-    queryset = models.MavenArtifact.objects.all()
-    serializer_class = serializers.MavenArtifactSerializer
+    queryset = MavenArtifact.objects.all()
+    serializer_class = MavenArtifactSerializer
     filterset_class = MavenArtifactFilter
 
 
-class MavenRemoteViewSet(core.RemoteViewSet):
+class MavenRemoteViewSet(RemoteViewSet):
     """
     A ViewSet for MavenRemote.
     """
 
     endpoint_name = "maven"
-    queryset = models.MavenRemote.objects.all()
-    serializer_class = serializers.MavenRemoteSerializer
+    queryset = MavenRemote.objects.all()
+    serializer_class = MavenRemoteSerializer
 
 
-class MavenRepositoryViewSet(core.RepositoryViewSet):
+class MavenRepositoryViewSet(RepositoryViewSet):
     """
     A ViewSet for MavenRemote.
     """
 
     endpoint_name = "maven"
-    queryset = models.MavenRepository.objects.all()
-    serializer_class = serializers.MavenRepositorySerializer
+    queryset = MavenRepository.objects.all()
+    serializer_class = MavenRepositorySerializer
 
 
-class MavenRepositoryVersionViewSet(core.RepositoryVersionViewSet):
+class MavenRepositoryVersionViewSet(RepositoryVersionViewSet):
     """
     MavenRepositoryVersion represents a single Maven repository version.
     """
@@ -52,11 +67,11 @@ class MavenRepositoryVersionViewSet(core.RepositoryVersionViewSet):
     parent_viewset = MavenRepositoryViewSet
 
 
-class MavenDistributionViewSet(core.DistributionViewSet):
+class MavenDistributionViewSet(DistributionViewSet):
     """
     ViewSet for Maven Distributions.
     """
 
     endpoint_name = "maven"
-    queryset = models.MavenDistribution.objects.all()
-    serializer_class = serializers.MavenDistributionSerializer
+    queryset = MavenDistribution.objects.all()
+    serializer_class = MavenDistributionSerializer
