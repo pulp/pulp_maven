@@ -1,0 +1,3328 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+        "title": "Pulp 3 API",
+        "version": "v3",
+        "description": "Fetch, Upload, Organize, and Distribute Software Packages",
+        "contact": {
+            "name": "Pulp Team",
+            "email": "pulp-list@redhat.com",
+            "url": "https://pulpproject.org"
+        },
+        "license": {
+            "name": "GPLv2+",
+            "url": "https://raw.githubusercontent.com/pulp/pulpcore/master/LICENSE"
+        },
+        "x-logo": {
+            "url": "https://pulp.plan.io/attachments/download/517478/pulp_logo_word_rectangle.svg"
+        },
+        "x-pulp-app-versions": {
+            "core": "3.23.0.dev",
+            "rpm": "3.20.0.dev",
+            "container": "2.15.0.dev",
+            "file": "1.13.0.dev",
+            "maven": "0.4.0.dev"
+        }
+    },
+    "paths": {
+        "/pulp/api/v3/content/maven/artifact/": {
+            "get": {
+                "operationId": "content_maven_artifact_list",
+                "description": "A ViewSet for MavenArtifact.",
+                "summary": "List maven artifacts",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "artifact_id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where artifact_id matches value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "filename",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where filename matches value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "group_id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where group_id matches value"
+                    },
+                    {
+                        "name": "limit",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "required": false,
+                        "in": "query",
+                        "description": "The initial index from which to return the results.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "ordering",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "-artifact_id",
+                                    "-filename",
+                                    "-group_id",
+                                    "-pk",
+                                    "-pulp_created",
+                                    "-pulp_id",
+                                    "-pulp_last_updated",
+                                    "-pulp_type",
+                                    "-timestamp_of_interest",
+                                    "-upstream_id",
+                                    "-version",
+                                    "artifact_id",
+                                    "filename",
+                                    "group_id",
+                                    "pk",
+                                    "pulp_created",
+                                    "pulp_id",
+                                    "pulp_last_updated",
+                                    "pulp_type",
+                                    "timestamp_of_interest",
+                                    "upstream_id",
+                                    "version"
+                                ]
+                            }
+                        },
+                        "description": "Ordering",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "in": "query",
+                        "name": "repository_version",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Repository Version referenced by HREF"
+                    },
+                    {
+                        "in": "query",
+                        "name": "repository_version_added",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Repository Version referenced by HREF"
+                    },
+                    {
+                        "in": "query",
+                        "name": "repository_version_removed",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Repository Version referenced by HREF"
+                    },
+                    {
+                        "in": "query",
+                        "name": "version",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where version matches value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to include in the response."
+                    },
+                    {
+                        "in": "query",
+                        "name": "exclude_fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to exclude from the response."
+                    }
+                ],
+                "tags": [
+                    "Content: Artifact"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Paginatedmaven.MavenArtifactResponseList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "content_maven_artifact_create",
+                "description": "A ViewSet for MavenArtifact.",
+                "summary": "Create a maven artifact",
+                "tags": [
+                    "Content: Artifact"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenArtifact"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenArtifact"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenArtifact"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/maven.MavenArtifactResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "{maven_maven_artifact_href}": {
+            "get": {
+                "operationId": "content_maven_artifact_read",
+                "description": "A ViewSet for MavenArtifact.",
+                "summary": "Inspect a maven artifact",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_artifact_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to include in the response."
+                    },
+                    {
+                        "in": "query",
+                        "name": "exclude_fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to exclude from the response."
+                    }
+                ],
+                "tags": [
+                    "Content: Artifact"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/maven.MavenArtifactResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/pulp/api/v3/distributions/maven/maven/": {
+            "get": {
+                "operationId": "distributions_maven_maven_list",
+                "description": "ViewSet for Maven Distributions.",
+                "summary": "List maven distributions",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "base_path",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where base_path matches value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "base_path__contains",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where base_path contains value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "base_path__icontains",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where base_path contains value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "base_path__in",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "Filter results where base_path is in a comma-separated list of values",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "name": "limit",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where name matches value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "name__contains",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where name contains value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "name__icontains",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where name contains value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "name__in",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "Filter results where name is in a comma-separated list of values",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "in": "query",
+                        "name": "name__startswith",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where name starts with value"
+                    },
+                    {
+                        "name": "offset",
+                        "required": false,
+                        "in": "query",
+                        "description": "The initial index from which to return the results.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "ordering",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "-base_path",
+                                    "-name",
+                                    "-pk",
+                                    "-pulp_created",
+                                    "-pulp_id",
+                                    "-pulp_labels",
+                                    "-pulp_last_updated",
+                                    "-pulp_type",
+                                    "base_path",
+                                    "name",
+                                    "pk",
+                                    "pulp_created",
+                                    "pulp_id",
+                                    "pulp_labels",
+                                    "pulp_last_updated",
+                                    "pulp_type"
+                                ]
+                            }
+                        },
+                        "description": "Ordering",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_label_select",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter labels by search string"
+                    },
+                    {
+                        "in": "query",
+                        "name": "repository",
+                        "schema": {
+                            "type": "string",
+                            "format": "uri"
+                        },
+                        "description": "Filter results where repository matches value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "repository__in",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "format": "uri"
+                            }
+                        },
+                        "description": "Filter results where repository is in a comma-separated list of values",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "in": "query",
+                        "name": "with_content",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter distributions based on the content served by them"
+                    },
+                    {
+                        "in": "query",
+                        "name": "fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to include in the response."
+                    },
+                    {
+                        "in": "query",
+                        "name": "exclude_fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to exclude from the response."
+                    }
+                ],
+                "tags": [
+                    "Distributions: Maven"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Paginatedmaven.MavenDistributionResponseList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "distributions_maven_maven_create",
+                "description": "Trigger an asynchronous create task",
+                "summary": "Create a maven distribution",
+                "tags": [
+                    "Distributions: Maven"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenDistribution"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenDistribution"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenDistribution"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AsyncOperationResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "{maven_maven_distribution_href}": {
+            "get": {
+                "operationId": "distributions_maven_maven_read",
+                "description": "ViewSet for Maven Distributions.",
+                "summary": "Inspect a maven distribution",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_distribution_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to include in the response."
+                    },
+                    {
+                        "in": "query",
+                        "name": "exclude_fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to exclude from the response."
+                    }
+                ],
+                "tags": [
+                    "Distributions: Maven"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/maven.MavenDistributionResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "distributions_maven_maven_update",
+                "description": "Trigger an asynchronous update task",
+                "summary": "Update a maven distribution",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_distribution_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Distributions: Maven"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenDistribution"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenDistribution"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenDistribution"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AsyncOperationResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "distributions_maven_maven_partial_update",
+                "description": "Trigger an asynchronous partial update task",
+                "summary": "Update a maven distribution",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_distribution_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Distributions: Maven"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Patchedmaven.MavenDistribution"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Patchedmaven.MavenDistribution"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Patchedmaven.MavenDistribution"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AsyncOperationResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "distributions_maven_maven_delete",
+                "description": "Trigger an asynchronous delete task",
+                "summary": "Delete a maven distribution",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_distribution_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Distributions: Maven"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AsyncOperationResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/pulp/api/v3/remotes/maven/maven/": {
+            "get": {
+                "operationId": "remotes_maven_maven_list",
+                "description": "A ViewSet for MavenRemote.",
+                "summary": "List maven remotes",
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where name matches value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "name__contains",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where name contains value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "name__icontains",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where name contains value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "name__in",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "Filter results where name is in a comma-separated list of values",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "in": "query",
+                        "name": "name__startswith",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where name starts with value"
+                    },
+                    {
+                        "name": "offset",
+                        "required": false,
+                        "in": "query",
+                        "description": "The initial index from which to return the results.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "ordering",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "-ca_cert",
+                                    "-client_cert",
+                                    "-client_key",
+                                    "-connect_timeout",
+                                    "-download_concurrency",
+                                    "-headers",
+                                    "-max_retries",
+                                    "-name",
+                                    "-password",
+                                    "-pk",
+                                    "-policy",
+                                    "-proxy_password",
+                                    "-proxy_url",
+                                    "-proxy_username",
+                                    "-pulp_created",
+                                    "-pulp_id",
+                                    "-pulp_labels",
+                                    "-pulp_last_updated",
+                                    "-pulp_type",
+                                    "-rate_limit",
+                                    "-sock_connect_timeout",
+                                    "-sock_read_timeout",
+                                    "-tls_validation",
+                                    "-total_timeout",
+                                    "-url",
+                                    "-username",
+                                    "ca_cert",
+                                    "client_cert",
+                                    "client_key",
+                                    "connect_timeout",
+                                    "download_concurrency",
+                                    "headers",
+                                    "max_retries",
+                                    "name",
+                                    "password",
+                                    "pk",
+                                    "policy",
+                                    "proxy_password",
+                                    "proxy_url",
+                                    "proxy_username",
+                                    "pulp_created",
+                                    "pulp_id",
+                                    "pulp_labels",
+                                    "pulp_last_updated",
+                                    "pulp_type",
+                                    "rate_limit",
+                                    "sock_connect_timeout",
+                                    "sock_read_timeout",
+                                    "tls_validation",
+                                    "total_timeout",
+                                    "url",
+                                    "username"
+                                ]
+                            }
+                        },
+                        "description": "Ordering",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_label_select",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter labels by search string"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_last_updated",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "description": "Filter results where pulp_last_updated matches value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_last_updated__gt",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "description": "Filter results where pulp_last_updated is greater than value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_last_updated__gte",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "description": "Filter results where pulp_last_updated is greater than or equal to value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_last_updated__lt",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "description": "Filter results where pulp_last_updated is less than value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_last_updated__lte",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "description": "Filter results where pulp_last_updated is less than or equal to value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_last_updated__range",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "format": "date-time"
+                            }
+                        },
+                        "description": "Filter results where pulp_last_updated is between two comma separated values",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "in": "query",
+                        "name": "fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to include in the response."
+                    },
+                    {
+                        "in": "query",
+                        "name": "exclude_fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to exclude from the response."
+                    }
+                ],
+                "tags": [
+                    "Remotes: Maven"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Paginatedmaven.MavenRemoteResponseList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "remotes_maven_maven_create",
+                "description": "A ViewSet for MavenRemote.",
+                "summary": "Create a maven remote",
+                "tags": [
+                    "Remotes: Maven"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenRemote"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenRemote"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenRemote"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/maven.MavenRemoteResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "{maven_maven_remote_href}": {
+            "get": {
+                "operationId": "remotes_maven_maven_read",
+                "description": "A ViewSet for MavenRemote.",
+                "summary": "Inspect a maven remote",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_remote_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to include in the response."
+                    },
+                    {
+                        "in": "query",
+                        "name": "exclude_fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to exclude from the response."
+                    }
+                ],
+                "tags": [
+                    "Remotes: Maven"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/maven.MavenRemoteResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "remotes_maven_maven_update",
+                "description": "Trigger an asynchronous update task",
+                "summary": "Update a maven remote",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_remote_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Remotes: Maven"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenRemote"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenRemote"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenRemote"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AsyncOperationResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "remotes_maven_maven_partial_update",
+                "description": "Trigger an asynchronous partial update task",
+                "summary": "Update a maven remote",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_remote_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Remotes: Maven"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Patchedmaven.MavenRemote"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Patchedmaven.MavenRemote"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Patchedmaven.MavenRemote"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AsyncOperationResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "remotes_maven_maven_delete",
+                "description": "Trigger an asynchronous delete task",
+                "summary": "Delete a maven remote",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_remote_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Remotes: Maven"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AsyncOperationResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/pulp/api/v3/repositories/maven/maven/": {
+            "get": {
+                "operationId": "repositories_maven_maven_list",
+                "description": "A ViewSet for MavenRemote.",
+                "summary": "List maven repositorys",
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where name matches value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "name__contains",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where name contains value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "name__icontains",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where name contains value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "name__in",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "Filter results where name is in a comma-separated list of values",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "in": "query",
+                        "name": "name__startswith",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter results where name starts with value"
+                    },
+                    {
+                        "name": "offset",
+                        "required": false,
+                        "in": "query",
+                        "description": "The initial index from which to return the results.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "ordering",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "-description",
+                                    "-name",
+                                    "-next_version",
+                                    "-pk",
+                                    "-pulp_created",
+                                    "-pulp_id",
+                                    "-pulp_labels",
+                                    "-pulp_last_updated",
+                                    "-pulp_type",
+                                    "-retain_repo_versions",
+                                    "-user_hidden",
+                                    "description",
+                                    "name",
+                                    "next_version",
+                                    "pk",
+                                    "pulp_created",
+                                    "pulp_id",
+                                    "pulp_labels",
+                                    "pulp_last_updated",
+                                    "pulp_type",
+                                    "retain_repo_versions",
+                                    "user_hidden"
+                                ]
+                            }
+                        },
+                        "description": "Ordering",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_label_select",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter labels by search string"
+                    },
+                    {
+                        "in": "query",
+                        "name": "remote",
+                        "schema": {
+                            "type": "string",
+                            "format": "uri"
+                        },
+                        "description": "Foreign Key referenced by HREF"
+                    },
+                    {
+                        "in": "query",
+                        "name": "retain_repo_versions",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Filter results where retain_repo_versions matches value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "retain_repo_versions__gt",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Filter results where retain_repo_versions is greater than value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "retain_repo_versions__gte",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Filter results where retain_repo_versions is greater than or equal to value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "retain_repo_versions__isnull",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "Filter results where retain_repo_versions has a null value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "retain_repo_versions__lt",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Filter results where retain_repo_versions is less than value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "retain_repo_versions__lte",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Filter results where retain_repo_versions is less than or equal to value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "retain_repo_versions__ne",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Filter results where retain_repo_versions not equal to value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "retain_repo_versions__range",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            }
+                        },
+                        "description": "Filter results where retain_repo_versions is between two comma separated values",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "in": "query",
+                        "name": "fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to include in the response."
+                    },
+                    {
+                        "in": "query",
+                        "name": "exclude_fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to exclude from the response."
+                    }
+                ],
+                "tags": [
+                    "Repositories: Maven"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Paginatedmaven.MavenRepositoryResponseList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "repositories_maven_maven_create",
+                "description": "A ViewSet for MavenRemote.",
+                "summary": "Create a maven repository",
+                "tags": [
+                    "Repositories: Maven"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenRepository"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenRepository"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenRepository"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/maven.MavenRepositoryResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "{maven_maven_repository_href}": {
+            "get": {
+                "operationId": "repositories_maven_maven_read",
+                "description": "A ViewSet for MavenRemote.",
+                "summary": "Inspect a maven repository",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_repository_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to include in the response."
+                    },
+                    {
+                        "in": "query",
+                        "name": "exclude_fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to exclude from the response."
+                    }
+                ],
+                "tags": [
+                    "Repositories: Maven"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/maven.MavenRepositoryResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "repositories_maven_maven_update",
+                "description": "Trigger an asynchronous update task",
+                "summary": "Update a maven repository",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_repository_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Repositories: Maven"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenRepository"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenRepository"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/maven.MavenRepository"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AsyncOperationResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "repositories_maven_maven_partial_update",
+                "description": "Trigger an asynchronous partial update task",
+                "summary": "Update a maven repository",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_repository_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Repositories: Maven"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Patchedmaven.MavenRepository"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Patchedmaven.MavenRepository"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Patchedmaven.MavenRepository"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AsyncOperationResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "repositories_maven_maven_delete",
+                "description": "Trigger an asynchronous delete task",
+                "summary": "Delete a maven repository",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_repository_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Repositories: Maven"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AsyncOperationResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "{maven_maven_repository_href}versions/": {
+            "get": {
+                "operationId": "repositories_maven_maven_versions_list",
+                "description": "MavenRepositoryVersion represents a single Maven repository version.",
+                "summary": "List repository versions",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "content",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Content Unit referenced by HREF"
+                    },
+                    {
+                        "in": "query",
+                        "name": "content__in",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Content Unit referenced by HREF"
+                    },
+                    {
+                        "name": "limit",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "maven_maven_repository_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "number",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Filter results where number matches value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "number__gt",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Filter results where number is greater than value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "number__gte",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Filter results where number is greater than or equal to value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "number__lt",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Filter results where number is less than value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "number__lte",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Filter results where number is less than or equal to value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "number__range",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            }
+                        },
+                        "description": "Filter results where number is between two comma separated values",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "name": "offset",
+                        "required": false,
+                        "in": "query",
+                        "description": "The initial index from which to return the results.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "ordering",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "-complete",
+                                    "-info",
+                                    "-number",
+                                    "-pk",
+                                    "-pulp_created",
+                                    "-pulp_id",
+                                    "-pulp_last_updated",
+                                    "complete",
+                                    "info",
+                                    "number",
+                                    "pk",
+                                    "pulp_created",
+                                    "pulp_id",
+                                    "pulp_last_updated"
+                                ]
+                            }
+                        },
+                        "description": "Ordering",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_created",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "description": "Filter results where pulp_created matches value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_created__gt",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "description": "Filter results where pulp_created is greater than value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_created__gte",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "description": "Filter results where pulp_created is greater than or equal to value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_created__lt",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "description": "Filter results where pulp_created is less than value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_created__lte",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "description": "Filter results where pulp_created is less than or equal to value"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pulp_created__range",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "format": "date-time"
+                            }
+                        },
+                        "description": "Filter results where pulp_created is between two comma separated values",
+                        "explode": false,
+                        "style": "form"
+                    },
+                    {
+                        "in": "query",
+                        "name": "fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to include in the response."
+                    },
+                    {
+                        "in": "query",
+                        "name": "exclude_fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to exclude from the response."
+                    }
+                ],
+                "tags": [
+                    "Repositories: Maven Versions"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedRepositoryVersionResponseList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "{maven_maven_repository_version_href}": {
+            "get": {
+                "operationId": "repositories_maven_maven_versions_read",
+                "description": "MavenRepositoryVersion represents a single Maven repository version.",
+                "summary": "Inspect a repository version",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_repository_version_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to include in the response."
+                    },
+                    {
+                        "in": "query",
+                        "name": "exclude_fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to exclude from the response."
+                    }
+                ],
+                "tags": [
+                    "Repositories: Maven Versions"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RepositoryVersionResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "repositories_maven_maven_versions_delete",
+                "description": "Trigger an asynchronous task to delete a repository version.",
+                "summary": "Delete a repository version",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_repository_version_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Repositories: Maven Versions"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AsyncOperationResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "{maven_maven_repository_version_href}repair/": {
+            "post": {
+                "operationId": "repositories_maven_maven_versions_repair",
+                "description": "Trigger an asynchronous task to repair a repository version.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "maven_maven_repository_version_href",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Repositories: Maven Versions"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Repair"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Repair"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Repair"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AsyncOperationResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/pulp/maven/{name}/{path}": {
+            "get": {
+                "operationId": "pulp_maven_get",
+                "description": "Responds to GET requests about manifests by reference",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "name",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[\\w-]+$"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "path",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^.*$"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to include in the response."
+                    },
+                    {
+                        "in": "query",
+                        "name": "exclude_fields",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "A list of fields to exclude from the response."
+                    }
+                ],
+                "tags": [
+                    "Pulp: Maven"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "put": {
+                "operationId": "pulp_maven_put",
+                "description": "ViewSet for interacting with maven deploy API",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "name",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[\\w-]+$"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "path",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^.*$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Pulp: Maven"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "AsyncOperationResponse": {
+                "type": "object",
+                "description": "Serializer for asynchronous operations.",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "format": "uri",
+                        "description": "The href of the task."
+                    }
+                },
+                "required": [
+                    "task"
+                ]
+            },
+            "ContentSummaryResponse": {
+                "type": "object",
+                "description": "Serializer for the RepositoryVersion content summary",
+                "properties": {
+                    "added": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "object"
+                        }
+                    },
+                    "removed": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "object"
+                        }
+                    },
+                    "present": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "object"
+                        }
+                    }
+                },
+                "required": [
+                    "added",
+                    "present",
+                    "removed"
+                ]
+            },
+            "PaginatedRepositoryVersionResponseList": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=400&limit=100"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=200&limit=100"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RepositoryVersionResponse"
+                        }
+                    }
+                }
+            },
+            "Paginatedmaven.MavenArtifactResponseList": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=400&limit=100"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=200&limit=100"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/maven.MavenArtifactResponse"
+                        }
+                    }
+                }
+            },
+            "Paginatedmaven.MavenDistributionResponseList": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=400&limit=100"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=200&limit=100"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/maven.MavenDistributionResponse"
+                        }
+                    }
+                }
+            },
+            "Paginatedmaven.MavenRemoteResponseList": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=400&limit=100"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=200&limit=100"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/maven.MavenRemoteResponse"
+                        }
+                    }
+                }
+            },
+            "Paginatedmaven.MavenRepositoryResponseList": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=400&limit=100"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=200&limit=100"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/maven.MavenRepositoryResponse"
+                        }
+                    }
+                }
+            },
+            "Patchedmaven.MavenDistribution": {
+                "type": "object",
+                "description": "Serializer for Maven Distributions.",
+                "properties": {
+                    "base_path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The base (relative) path component of the published url. Avoid paths that                     overlap with other distribution base paths (e.g. \"foo\" and \"foo/bar\")"
+                    },
+                    "content_guard": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "An optional content-guard."
+                    },
+                    "pulp_labels": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                            "nullable": true
+                        }
+                    },
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "A unique name. Ex, `rawhide` and `stable`."
+                    },
+                    "repository": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "The latest RepositoryVersion for this Repository will be served."
+                    },
+                    "remote": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "Remote that can be used to fetch content when using pull-through caching."
+                    }
+                }
+            },
+            "Patchedmaven.MavenRemote": {
+                "type": "object",
+                "description": "A Serializer for MavenRemote.\n\nAdd any new fields if defined on MavenRemote.\nSimilar to the example above, in MavenArtifactSerializer.\nAdditional validators can be added to the parent validators list\n\nFor example::\n\nclass Meta:\n    validators = platform.RemoteSerializer.Meta.validators + [myValidator1, myValidator2]",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "A unique name for this remote."
+                    },
+                    "url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The URL of an external content source."
+                    },
+                    "ca_cert": {
+                        "type": "string",
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "A PEM encoded CA certificate used to validate the server certificate presented by the remote server."
+                    },
+                    "client_cert": {
+                        "type": "string",
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "A PEM encoded client certificate used for authentication."
+                    },
+                    "client_key": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "A PEM encoded private key used for authentication."
+                    },
+                    "tls_validation": {
+                        "type": "boolean",
+                        "description": "If True, TLS peer validation must be performed."
+                    },
+                    "proxy_url": {
+                        "type": "string",
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "The proxy URL. Format: scheme://host:port"
+                    },
+                    "proxy_username": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "The username to authenticte to the proxy."
+                    },
+                    "proxy_password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "The password to authenticate to the proxy. Extra leading and trailing whitespace characters are not trimmed."
+                    },
+                    "username": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "The username to be used for authentication when syncing."
+                    },
+                    "password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "The password to be used for authentication when syncing. Extra leading and trailing whitespace characters are not trimmed."
+                    },
+                    "pulp_labels": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                            "nullable": true
+                        }
+                    },
+                    "download_concurrency": {
+                        "type": "integer",
+                        "format": "int64",
+                        "nullable": true,
+                        "description": "Total number of simultaneous connections. If not set then the default value will be used.",
+                        "minimum": 1
+                    },
+                    "max_retries": {
+                        "type": "integer",
+                        "format": "int64",
+                        "nullable": true,
+                        "description": "Maximum number of retry attempts after a download failure. If not set then the default value (3) will be used."
+                    },
+                    "policy": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PolicyEnum"
+                            }
+                        ],
+                        "default": "immediate",
+                        "description": "The policy to use when downloading content."
+                    },
+                    "total_timeout": {
+                        "type": "number",
+                        "format": "double",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "description": "aiohttp.ClientTimeout.total (q.v.) for download-connections. The default is null, which will cause the default from the aiohttp library to be used."
+                    },
+                    "connect_timeout": {
+                        "type": "number",
+                        "format": "double",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "description": "aiohttp.ClientTimeout.connect (q.v.) for download-connections. The default is null, which will cause the default from the aiohttp library to be used."
+                    },
+                    "sock_connect_timeout": {
+                        "type": "number",
+                        "format": "double",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "description": "aiohttp.ClientTimeout.sock_connect (q.v.) for download-connections. The default is null, which will cause the default from the aiohttp library to be used."
+                    },
+                    "sock_read_timeout": {
+                        "type": "number",
+                        "format": "double",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "description": "aiohttp.ClientTimeout.sock_read (q.v.) for download-connections. The default is null, which will cause the default from the aiohttp library to be used."
+                    },
+                    "headers": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        },
+                        "description": "Headers for aiohttp.Clientsession"
+                    },
+                    "rate_limit": {
+                        "type": "integer",
+                        "format": "int64",
+                        "nullable": true,
+                        "description": "Limits requests per second for each concurrent downloader"
+                    }
+                }
+            },
+            "Patchedmaven.MavenRepository": {
+                "type": "object",
+                "description": "Serializer for Maven Repositories.",
+                "properties": {
+                    "pulp_labels": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                            "nullable": true
+                        }
+                    },
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "A unique name for this repository."
+                    },
+                    "description": {
+                        "type": "string",
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "An optional description."
+                    },
+                    "retain_repo_versions": {
+                        "type": "integer",
+                        "format": "int64",
+                        "nullable": true,
+                        "description": "Retain X versions of the repository. Default is null which retains all versions.",
+                        "minimum": 1
+                    },
+                    "remote": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "An optional remote to use by default when syncing."
+                    }
+                }
+            },
+            "PolicyEnum": {
+                "enum": [
+                    "immediate",
+                    "When syncing, download all metadata and content now."
+                ],
+                "type": "string"
+            },
+            "Repair": {
+                "type": "object",
+                "properties": {
+                    "verify_checksums": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Will verify that the checksum of all stored files matches what saved in the database. Otherwise only the existence of the files will be checked. Enabled by default"
+                    }
+                }
+            },
+            "RepositoryVersionResponse": {
+                "type": "object",
+                "description": "Base serializer for use with :class:`pulpcore.app.models.Model`\n\nThis ensures that all Serializers provide values for the 'pulp_href` field.\n\nThe class provides a default for the ``ref_name`` attribute in the\nModelSerializers's ``Meta`` class. This ensures that the OpenAPI definitions\nof plugins are namespaced properly.",
+                "properties": {
+                    "pulp_href": {
+                        "type": "string",
+                        "format": "uri",
+                        "readOnly": true
+                    },
+                    "pulp_created": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "Timestamp of creation."
+                    },
+                    "number": {
+                        "type": "integer",
+                        "format": "int64",
+                        "readOnly": true
+                    },
+                    "repository": {
+                        "type": "string",
+                        "format": "uri",
+                        "readOnly": true
+                    },
+                    "base_version": {
+                        "type": "string",
+                        "format": "uri",
+                        "description": "A repository version whose content was used as the initial set of content for this repository version"
+                    },
+                    "content_summary": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ContentSummaryResponse"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "Various count summaries of the content in the version and the HREF to view them."
+                    }
+                }
+            },
+            "maven.MavenArtifact": {
+                "type": "object",
+                "description": "A Serializer for MavenArtifact.",
+                "properties": {
+                    "artifact": {
+                        "type": "string",
+                        "format": "uri",
+                        "description": "Artifact file representing the physical content"
+                    },
+                    "relative_path": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1,
+                        "description": "Path where the artifact is located relative to distributions base_path"
+                    }
+                },
+                "required": [
+                    "artifact",
+                    "relative_path"
+                ]
+            },
+            "maven.MavenArtifactResponse": {
+                "type": "object",
+                "description": "A Serializer for MavenArtifact.",
+                "properties": {
+                    "pulp_href": {
+                        "type": "string",
+                        "format": "uri",
+                        "readOnly": true
+                    },
+                    "pulp_created": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "Timestamp of creation."
+                    },
+                    "artifact": {
+                        "type": "string",
+                        "format": "uri",
+                        "description": "Artifact file representing the physical content"
+                    },
+                    "group_id": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Group Id of the artifact's package."
+                    },
+                    "artifact_id": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Artifact Id of the artifact's package."
+                    },
+                    "version": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Version of the artifact's package."
+                    },
+                    "filename": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Filename of the artifact."
+                    }
+                },
+                "required": [
+                    "artifact"
+                ]
+            },
+            "maven.MavenDistribution": {
+                "type": "object",
+                "description": "Serializer for Maven Distributions.",
+                "properties": {
+                    "base_path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The base (relative) path component of the published url. Avoid paths that                     overlap with other distribution base paths (e.g. \"foo\" and \"foo/bar\")"
+                    },
+                    "content_guard": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "An optional content-guard."
+                    },
+                    "pulp_labels": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                            "nullable": true
+                        }
+                    },
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "A unique name. Ex, `rawhide` and `stable`."
+                    },
+                    "repository": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "The latest RepositoryVersion for this Repository will be served."
+                    },
+                    "remote": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "Remote that can be used to fetch content when using pull-through caching."
+                    }
+                },
+                "required": [
+                    "base_path",
+                    "name"
+                ]
+            },
+            "maven.MavenDistributionResponse": {
+                "type": "object",
+                "description": "Serializer for Maven Distributions.",
+                "properties": {
+                    "pulp_href": {
+                        "type": "string",
+                        "format": "uri",
+                        "readOnly": true
+                    },
+                    "pulp_created": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "Timestamp of creation."
+                    },
+                    "base_path": {
+                        "type": "string",
+                        "description": "The base (relative) path component of the published url. Avoid paths that                     overlap with other distribution base paths (e.g. \"foo\" and \"foo/bar\")"
+                    },
+                    "base_url": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "The URL for accessing the publication as defined by this distribution."
+                    },
+                    "content_guard": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "An optional content-guard."
+                    },
+                    "pulp_labels": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                            "nullable": true
+                        }
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "A unique name. Ex, `rawhide` and `stable`."
+                    },
+                    "repository": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "The latest RepositoryVersion for this Repository will be served."
+                    },
+                    "remote": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "Remote that can be used to fetch content when using pull-through caching."
+                    }
+                },
+                "required": [
+                    "base_path",
+                    "name"
+                ]
+            },
+            "maven.MavenRemote": {
+                "type": "object",
+                "description": "A Serializer for MavenRemote.\n\nAdd any new fields if defined on MavenRemote.\nSimilar to the example above, in MavenArtifactSerializer.\nAdditional validators can be added to the parent validators list\n\nFor example::\n\nclass Meta:\n    validators = platform.RemoteSerializer.Meta.validators + [myValidator1, myValidator2]",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "A unique name for this remote."
+                    },
+                    "url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The URL of an external content source."
+                    },
+                    "ca_cert": {
+                        "type": "string",
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "A PEM encoded CA certificate used to validate the server certificate presented by the remote server."
+                    },
+                    "client_cert": {
+                        "type": "string",
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "A PEM encoded client certificate used for authentication."
+                    },
+                    "client_key": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "A PEM encoded private key used for authentication."
+                    },
+                    "tls_validation": {
+                        "type": "boolean",
+                        "description": "If True, TLS peer validation must be performed."
+                    },
+                    "proxy_url": {
+                        "type": "string",
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "The proxy URL. Format: scheme://host:port"
+                    },
+                    "proxy_username": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "The username to authenticte to the proxy."
+                    },
+                    "proxy_password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "The password to authenticate to the proxy. Extra leading and trailing whitespace characters are not trimmed."
+                    },
+                    "username": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "The username to be used for authentication when syncing."
+                    },
+                    "password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "The password to be used for authentication when syncing. Extra leading and trailing whitespace characters are not trimmed."
+                    },
+                    "pulp_labels": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                            "nullable": true
+                        }
+                    },
+                    "download_concurrency": {
+                        "type": "integer",
+                        "format": "int64",
+                        "nullable": true,
+                        "description": "Total number of simultaneous connections. If not set then the default value will be used.",
+                        "minimum": 1
+                    },
+                    "max_retries": {
+                        "type": "integer",
+                        "format": "int64",
+                        "nullable": true,
+                        "description": "Maximum number of retry attempts after a download failure. If not set then the default value (3) will be used."
+                    },
+                    "policy": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PolicyEnum"
+                            }
+                        ],
+                        "default": "immediate",
+                        "description": "The policy to use when downloading content."
+                    },
+                    "total_timeout": {
+                        "type": "number",
+                        "format": "double",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "description": "aiohttp.ClientTimeout.total (q.v.) for download-connections. The default is null, which will cause the default from the aiohttp library to be used."
+                    },
+                    "connect_timeout": {
+                        "type": "number",
+                        "format": "double",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "description": "aiohttp.ClientTimeout.connect (q.v.) for download-connections. The default is null, which will cause the default from the aiohttp library to be used."
+                    },
+                    "sock_connect_timeout": {
+                        "type": "number",
+                        "format": "double",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "description": "aiohttp.ClientTimeout.sock_connect (q.v.) for download-connections. The default is null, which will cause the default from the aiohttp library to be used."
+                    },
+                    "sock_read_timeout": {
+                        "type": "number",
+                        "format": "double",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "description": "aiohttp.ClientTimeout.sock_read (q.v.) for download-connections. The default is null, which will cause the default from the aiohttp library to be used."
+                    },
+                    "headers": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        },
+                        "description": "Headers for aiohttp.Clientsession"
+                    },
+                    "rate_limit": {
+                        "type": "integer",
+                        "format": "int64",
+                        "nullable": true,
+                        "description": "Limits requests per second for each concurrent downloader"
+                    }
+                },
+                "required": [
+                    "name",
+                    "url"
+                ]
+            },
+            "maven.MavenRemoteResponse": {
+                "type": "object",
+                "description": "A Serializer for MavenRemote.\n\nAdd any new fields if defined on MavenRemote.\nSimilar to the example above, in MavenArtifactSerializer.\nAdditional validators can be added to the parent validators list\n\nFor example::\n\nclass Meta:\n    validators = platform.RemoteSerializer.Meta.validators + [myValidator1, myValidator2]",
+                "properties": {
+                    "pulp_href": {
+                        "type": "string",
+                        "format": "uri",
+                        "readOnly": true
+                    },
+                    "pulp_created": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "Timestamp of creation."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "A unique name for this remote."
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "The URL of an external content source."
+                    },
+                    "ca_cert": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "A PEM encoded CA certificate used to validate the server certificate presented by the remote server."
+                    },
+                    "client_cert": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "A PEM encoded client certificate used for authentication."
+                    },
+                    "tls_validation": {
+                        "type": "boolean",
+                        "description": "If True, TLS peer validation must be performed."
+                    },
+                    "proxy_url": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "The proxy URL. Format: scheme://host:port"
+                    },
+                    "pulp_labels": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                            "nullable": true
+                        }
+                    },
+                    "pulp_last_updated": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "Timestamp of the most recent update of the remote."
+                    },
+                    "download_concurrency": {
+                        "type": "integer",
+                        "format": "int64",
+                        "nullable": true,
+                        "description": "Total number of simultaneous connections. If not set then the default value will be used.",
+                        "minimum": 1
+                    },
+                    "max_retries": {
+                        "type": "integer",
+                        "format": "int64",
+                        "nullable": true,
+                        "description": "Maximum number of retry attempts after a download failure. If not set then the default value (3) will be used."
+                    },
+                    "policy": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PolicyEnum"
+                            }
+                        ],
+                        "default": "immediate",
+                        "description": "The policy to use when downloading content."
+                    },
+                    "total_timeout": {
+                        "type": "number",
+                        "format": "double",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "description": "aiohttp.ClientTimeout.total (q.v.) for download-connections. The default is null, which will cause the default from the aiohttp library to be used."
+                    },
+                    "connect_timeout": {
+                        "type": "number",
+                        "format": "double",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "description": "aiohttp.ClientTimeout.connect (q.v.) for download-connections. The default is null, which will cause the default from the aiohttp library to be used."
+                    },
+                    "sock_connect_timeout": {
+                        "type": "number",
+                        "format": "double",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "description": "aiohttp.ClientTimeout.sock_connect (q.v.) for download-connections. The default is null, which will cause the default from the aiohttp library to be used."
+                    },
+                    "sock_read_timeout": {
+                        "type": "number",
+                        "format": "double",
+                        "minimum": 0.0,
+                        "nullable": true,
+                        "description": "aiohttp.ClientTimeout.sock_read (q.v.) for download-connections. The default is null, which will cause the default from the aiohttp library to be used."
+                    },
+                    "headers": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        },
+                        "description": "Headers for aiohttp.Clientsession"
+                    },
+                    "rate_limit": {
+                        "type": "integer",
+                        "format": "int64",
+                        "nullable": true,
+                        "description": "Limits requests per second for each concurrent downloader"
+                    },
+                    "hidden_fields": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string"
+                                },
+                                "is_set": {
+                                    "type": "boolean"
+                                }
+                            }
+                        },
+                        "readOnly": true,
+                        "description": "List of hidden (write only) fields"
+                    }
+                },
+                "required": [
+                    "name",
+                    "url"
+                ]
+            },
+            "maven.MavenRepository": {
+                "type": "object",
+                "description": "Serializer for Maven Repositories.",
+                "properties": {
+                    "pulp_labels": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                            "nullable": true
+                        }
+                    },
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "A unique name for this repository."
+                    },
+                    "description": {
+                        "type": "string",
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "An optional description."
+                    },
+                    "retain_repo_versions": {
+                        "type": "integer",
+                        "format": "int64",
+                        "nullable": true,
+                        "description": "Retain X versions of the repository. Default is null which retains all versions.",
+                        "minimum": 1
+                    },
+                    "remote": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "An optional remote to use by default when syncing."
+                    }
+                },
+                "required": [
+                    "name"
+                ]
+            },
+            "maven.MavenRepositoryResponse": {
+                "type": "object",
+                "description": "Serializer for Maven Repositories.",
+                "properties": {
+                    "pulp_href": {
+                        "type": "string",
+                        "format": "uri",
+                        "readOnly": true
+                    },
+                    "pulp_created": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "Timestamp of creation."
+                    },
+                    "versions_href": {
+                        "type": "string",
+                        "format": "uri",
+                        "readOnly": true
+                    },
+                    "pulp_labels": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                            "nullable": true
+                        }
+                    },
+                    "latest_version_href": {
+                        "type": "string",
+                        "format": "uri",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "A unique name for this repository."
+                    },
+                    "description": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "An optional description."
+                    },
+                    "retain_repo_versions": {
+                        "type": "integer",
+                        "format": "int64",
+                        "nullable": true,
+                        "description": "Retain X versions of the repository. Default is null which retains all versions.",
+                        "minimum": 1
+                    },
+                    "remote": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "An optional remote to use by default when syncing."
+                    }
+                },
+                "required": [
+                    "name"
+                ]
+            }
+        },
+        "securitySchemes": {
+            "basicAuth": {
+                "type": "http",
+                "scheme": "basic"
+            },
+            "cookieAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "sessionid"
+            }
+        }
+    },
+    "servers": [
+        {
+            "url": "http://localhost:24817/"
+        }
+    ]
+}

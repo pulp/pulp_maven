@@ -71,7 +71,7 @@ Create a Maven Distribution with the Maven Remote
       "pulp_href": "/pulp/api/v3/distributions/maven/maven/1c70eb04-7229-44a2-bf74-b8a94f461b73/",
       "pulp_created": "2023-03-10T20:30:04.487734Z",
       "base_path": "maven-central",
-      "base_url": "http://host.containers.internal:5001/pulp/content/maven-central/",
+      "base_url": "http://pulp-hostname/pulp/content/maven-central/",
       "content_guard": null,
       "pulp_labels": {},
       "name": "maven-central",
