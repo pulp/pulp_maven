@@ -2,7 +2,7 @@ User Setup
 ==========
 
 All workflow examples use ``pulp-cli-maven`` Python package available on PyPI. While the REST API
-requires authentication, the API used by Maven Deploy Plugin does not currently use authentication. 
+requires authentication, the API used by Maven Deploy Plugin does not currently use authentication.
 
 Install Pulp
 --------------------
