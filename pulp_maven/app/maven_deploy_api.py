@@ -5,7 +5,6 @@ import time
 
 from django.conf import settings
 from django.shortcuts import get_object_or_404, redirect
-from django.http import Http404
 from django.db import IntegrityError
 
 from rest_framework.exceptions import Throttled
@@ -76,7 +75,10 @@ class MavenApiViewSet(APIView):
     permission_classes = []
 
     def redirect_to_content_app(self, distribution, relative_path):
-        return redirect(f"{settings.CONTENT_ORIGIN}/{distribution.base_path}/{relative_path}")
+        return redirect(
+            f"{settings.CONTENT_ORIGIN}{settings.CONTENT_PATH_PREFIX}{distribution.base_path}/"
+            f"{relative_path}"
+        )
 
     def get_repository_and_distributions(self, name):
         repository = get_object_or_404(MavenRepository, name=name)
@@ -84,16 +86,22 @@ class MavenApiViewSet(APIView):
         return repository, distribution
 
     @staticmethod
+    def is_metadata(path):
+        is_metadata = False
+        pattern = r"\.(xml|xml\.sha1|xml\.md5|xml\.sha224|xml\.sha256|xml\.sha384|xml\.sha512)$"
+        if re.search(pattern, path):
+            is_metadata = True
+        return is_metadata
+
+    @staticmethod
     def maven_artifact_attrs_from_path(path):
-        path_parts = path.split("/")
-        # Check that the requested path is at least long enough
-        if len(path_parts) < 4:
-            raise Http404("Not Found")
+        group_id, artifact_id, version, name = MavenArtifact.group_artifact_version_filename(path)
+
         attrs = dict(
-            filename=path_parts[-1],
-            version=path_parts[-2],
-            artifact_id=path_parts[-3],
-            group_id=".".join(path_parts[:-3]),
+            filename=name,
+            version=version,
+            artifact_id=artifact_id,
+            group_id=group_id,
         )
         return attrs
 
@@ -106,19 +114,19 @@ class MavenApiViewSet(APIView):
         kwargs = self.maven_artifact_attrs_from_path(path)
         kwargs["pk__in"] = repo.latest_version().content
 
-        maven_artifact = get_object_or_404(MavenArtifact, **kwargs)
-        return self.redirect_to_content_app(
-            distro, maven_artifact.contentartifact_set.get().relative_path
-        )
+        if self.is_metadata(path):
+            model = MavenMetadata
+        else:
+            model = MavenArtifact
+        content = get_object_or_404(model, **kwargs)
+        relative_path = content.contentartifact_set.get().relative_path
+        return self.redirect_to_content_app(distro, relative_path)
 
     def put(self, request, name, path):
         repo, distro = self.get_repository_and_distributions(name)
 
         # Determine if this is an artifact or metadata
-        is_metadata = False
-        pattern = r"\.(xml|xml\.sha1|xml\.md5|xml\.sha224|xml\.sha256|xml\.sha384|xml\.sha512)$"
-        if re.search(pattern, path):
-            is_metadata = True
+        is_metadata = self.is_metadata(path)
 
         # Save the uploaded file as an artifact
         chunk = request.META["wsgi.input"]

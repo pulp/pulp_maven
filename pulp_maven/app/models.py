@@ -1,6 +1,7 @@
 from gettext import gettext as _
 from logging import getLogger
 from os import path
+import re
 
 from django.db import models
 
@@ -11,7 +12,7 @@ logger = getLogger(__name__)
 
 class MavenContentMixin:
     @staticmethod
-    def _get_group_artifact_version_filename(relative_path):
+    def group_artifact_version_filename(relative_path):
         """
         Converts a relative path into a tuple of group_id, artifact_id, and version.
 
@@ -24,8 +25,14 @@ class MavenContentMixin:
         """
         sub_path, filename = path.split(relative_path)
         sub_path, version = path.split(sub_path)
-        sub_path, artifact_id = path.split(sub_path)
-        group_id = sub_path.replace("/", ".")
+        pattern = re.compile(r"\d+(\.\d+)?(\.\d+)?([.-][a-zA-Z0-9]+)*")
+        if pattern.match(version) is None:
+            artifact_id = version
+            version = None
+            group_id = sub_path.replace("/", ".")
+        else:
+            sub_path, artifact_id = path.split(sub_path)
+            group_id = sub_path.replace("/", ".")
 
         return group_id, artifact_id, version, filename
 
@@ -61,7 +68,7 @@ class MavenArtifact(MavenContentMixin, Content):
         if path.isabs(relative_path):
             raise ValueError(_("Relative path can't start with '/'."))
 
-        group_id, artifact_id, version, f_name = MavenArtifact._get_group_artifact_version_filename(
+        group_id, artifact_id, version, f_name = MavenArtifact.group_artifact_version_filename(
             relative_path
         )
 
@@ -81,7 +88,7 @@ class MavenMetadata(MavenContentMixin, Content):
 
     group_id = models.CharField(max_length=255, null=False)
     artifact_id = models.CharField(max_length=255, null=False)
-    version = models.CharField(max_length=255, null=False)
+    version = models.CharField(max_length=255, null=True)
     filename = models.CharField(max_length=255, null=False)
     sha256 = models.CharField(max_length=64, null=False, unique=True, db_index=True)
 
@@ -102,7 +109,7 @@ class MavenMetadata(MavenContentMixin, Content):
         if path.isabs(relative_path):
             raise ValueError(_("Relative path can't start with '/'."))
 
-        group_id, artifact_id, version, f_name = MavenMetadata._get_group_artifact_version_filename(
+        group_id, artifact_id, version, f_name = MavenMetadata.group_artifact_version_filename(
             relative_path
         )
 
@@ -141,6 +148,9 @@ class MavenRemote(Remote):
         """
         Returns content type that is found at the relative_path.
         """
+        pattern = r"\.(xml|xml\.sha1|xml\.md5|xml\.sha224|xml\.sha256|xml\.sha384|xml\.sha512)$"
+        if re.search(pattern, relative_path):
+            return MavenMetadata
         return MavenArtifact
 
     class Meta:
