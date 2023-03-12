@@ -57,7 +57,7 @@ pulp_settings_s3: null
 pulp_settings_s6: null
 pulp_settings_stream: null
 pulpcore_branch: main
-pulpcore_pip_version_specifier: ~=3.12.0
+pulpcore_pip_version_specifier: ~=3.22.0
 pulpcore_revision: null
 pulpprojectdotorg_key_id: null
 pydocstyle: true
