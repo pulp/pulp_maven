@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Add issue to Free-to-take list
-        uses: leonsteinhaeuser/project-beta-automations@v2.0.0
+        uses: leonsteinhaeuser/project-beta-automations@v2.1.0
         with:
           gh_token: ${{ secrets.RELEASE_TOKEN }}
           organization: pulp
@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Move an issue to the In Progress column
-        uses: leonsteinhaeuser/project-beta-automations@v2.0.0
+        uses: leonsteinhaeuser/project-beta-automations@v2.1.0
         with:
           gh_token: ${{ secrets.RELEASE_TOKEN }}
           organization: pulp
@@ -79,7 +79,7 @@ jobs:
         issues: ${{ fromJSON(needs.find-linked-issues.outputs.linked-issues) }}
     steps:
       - name: Move to Needs Review
-        uses: leonsteinhaeuser/project-beta-automations@v2.0.0
+        uses: leonsteinhaeuser/project-beta-automations@v2.1.0
         with:
           gh_token: ${{ secrets.RELEASE_TOKEN }}
           organization: pulp
@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Move an issue to the Done column
-        uses: leonsteinhaeuser/project-beta-automations@v2.0.0
+        uses: leonsteinhaeuser/project-beta-automations@v2.1.0
         with:
           gh_token: ${{ secrets.RELEASE_TOKEN }}
           organization: pulp
