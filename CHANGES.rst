@@ -13,6 +13,25 @@ Changelog
 
 .. towncrier release notes start
 
+0.4.0 (2023-03-15)
+==================
+
+Features
+--------
+
+- Added ability to upload projects to repositories using the Maven Deploy Plugin.
+  `#115 <https://pulp.plan.io/issues/115>`_
+
+
+Misc
+----
+
+- `#111 <https://pulp.plan.io/issues/111>`_
+
+
+----
+
+
 0.3.3 (2022-06-22)
 ==================
 
