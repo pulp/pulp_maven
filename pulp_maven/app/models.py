@@ -122,18 +122,6 @@ class MavenMetadata(MavenContentMixin, Content):
         )
 
 
-class MavenRepository(Repository):
-    """
-    Repository for "maven" content.
-    """
-
-    TYPE = "maven"
-    CONTENT_TYPES = [MavenArtifact, MavenMetadata]
-
-    class Meta:
-        default_related_name = "%(app_label)s_%(model_name)s"
-
-
 class MavenRemote(Remote):
     """
     A Remote for MavenArtifact.
@@ -163,6 +151,19 @@ class MavenDistribution(Distribution):
     """
 
     TYPE = "maven"
+
+    class Meta:
+        default_related_name = "%(app_label)s_%(model_name)s"
+
+
+class MavenRepository(Repository):
+    """
+    Repository for "maven" content.
+    """
+
+    TYPE = "maven"
+    CONTENT_TYPES = [MavenArtifact, MavenMetadata]
+    REMOTE_TYPES = [MavenRemote]
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"

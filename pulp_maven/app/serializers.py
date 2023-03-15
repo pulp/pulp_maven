@@ -78,3 +78,29 @@ class MavenDistributionSerializer(platform.DistributionSerializer):
     class Meta:
         fields = platform.DistributionSerializer.Meta.fields + ("remote",)
         model = models.MavenDistribution
+
+
+class RepositoryAddCachedContentSerializer(platform.ValidateFieldsMixin, serializers.Serializer):
+    remote = platform.DetailRelatedField(
+        required=False,
+        view_name_pattern=r"remotes(-.*/.*)-detail",
+        queryset=models.Remote.objects.all(),
+        help_text=_(
+            "A remote to use to identify content that was cached. This will override a "
+            "remote set on repository."
+        ),
+    )
+
+    def validate(self, data):
+        data = super().validate(data)
+        repository = None
+        if "repository_pk" in self.context:
+            repository = models.Repository.objects.get(pk=self.context["repository_pk"])
+        remote = data.get("remote", None) or getattr(repository, "remote", None)
+
+        if not remote:
+            raise serializers.ValidationError(
+                {"remote": _("This field is required since a remote is not set on the repository.")}
+            )
+        self.check_cross_domains({"repository": repository, "remote": remote})
+        return data

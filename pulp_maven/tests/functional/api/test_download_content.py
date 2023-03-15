@@ -1,4 +1,5 @@
 """Tests that verify download of content served by Pulp."""
+from aiohttp.client_exceptions import ClientResponseError
 import hashlib
 from urllib.parse import urljoin
 
@@ -6,7 +7,13 @@ from pulp_maven.tests.functional.utils import download_file
 
 
 def test_download_content(
-    maven_distribution_factory, maven_remote_factory, maven_artifact_api_client
+    maven_distribution_factory,
+    maven_remote_factory,
+    maven_repo_factory,
+    maven_artifact_api_client,
+    maven_distro_api_client,
+    maven_repo_api_client,
+    monitor_task,
 ):
     """Verify whether content served by pulp can be downloaded.
 
@@ -23,7 +30,10 @@ def test_download_content(
        same checksum when fetched directly from Maven Central.
     """
     remote = maven_remote_factory(url="https://repo1.maven.org/maven2/")
-    distribution = maven_distribution_factory(remote=remote.pulp_href)
+    repository = maven_repo_factory(remote=remote.pulp_href)
+    distribution = maven_distribution_factory(
+        remote=remote.pulp_href, repository=repository.pulp_href
+    )
 
     # Pick a content unit, and download it from the remote repository
     unit_path = "academy/alex/custommatcher/1.0/custommatcher-1.0-javadoc.jar.sha1"
@@ -41,3 +51,28 @@ def test_download_content(
     # Check that Pulp created a MavenArtifact
     content_response = maven_artifact_api_client.list(filename="custommatcher-1.0-javadoc.jar.sha1")
     assert content_response.count == 1
+
+    # Remove the remote from the distribution
+    monitor_task(
+        maven_distro_api_client.partial_update(distribution.pulp_href, {"remote": None}).task
+    )
+
+    # Assert that the maven artifact is no longer available
+    try:
+        download_file(pulp_unit_url)
+    except ClientResponseError as e:
+        assert e.status == 404
+
+    # Assert that the repository version is 0
+    assert repository.latest_version_href.endswith("/versions/0/")
+
+    # Add cached content to the repository
+    monitor_task(maven_repo_api_client.add_cached_content(repository.pulp_href, {}).task)
+
+    # Assert that the repository is at version 1
+    repository = maven_repo_api_client.read(repository.pulp_href)
+    assert repository.latest_version_href.endswith("/versions/1/")
+
+    # Assert that it is now once again available from the same distribution
+    downloaded_file = download_file(pulp_unit_url)
+    assert downloaded_file.response_obj.status == 200
