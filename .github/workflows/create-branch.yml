@@ -27,7 +27,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          fetch-depth: 1
+          # by default, it uses a depth of 1
+          # this fetches all history so that we can read each commit
+          fetch-depth: 0
 
       - uses: actions/setup-python@v3
         with:
@@ -40,6 +42,7 @@ jobs:
           echo ::endgroup::
 
       - name: Setting secrets
+        
         run: python3 .github/workflows/scripts/secrets.py "$SECRETS_CONTEXT"
         env:
           SECRETS_CONTEXT: ${{ toJson(secrets) }}
