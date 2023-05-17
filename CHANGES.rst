@@ -13,6 +13,21 @@ Changelog
 
 .. towncrier release notes start
 
+0.6.0 (2023-05-17)
+==================
+
+Features
+--------
+
+- Added ability to add cached content to a repository.
+  `#136 <https://pulp.plan.io/issues/136>`_
+- Updated pulpcore compatibility to >=3.25.0,<3.40.
+  `#153 <https://pulp.plan.io/issues/153>`_
+
+
+----
+
+
 0.5.0 (2023-03-17)
 ==================
 
