@@ -13,6 +13,19 @@ Changelog
 
 .. towncrier release notes start
 
+0.7.0 (2023-11-02)
+==================
+
+Features
+--------
+
+- Made plugin compatible with pulpcore 3.40+.
+  `#172 <https://pulp.plan.io/issues/172>`_
+
+
+----
+
+
 0.6.0 (2023-05-17)
 ==================
 
