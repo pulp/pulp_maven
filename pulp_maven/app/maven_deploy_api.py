@@ -1,7 +1,6 @@
 import hashlib
 import re
 from tempfile import NamedTemporaryFile
-import time
 
 from django.conf import settings
 from django.shortcuts import get_object_or_404, redirect
@@ -17,35 +16,31 @@ from pulp_maven.app.models import (
     MavenRepository,
     MavenDistribution,
 )
-from pulpcore.plugin.models import Artifact, ContentArtifact, Task
+from pulpcore.plugin.models import Artifact, ContentArtifact
 from pulpcore.plugin.tasking import add_and_remove, dispatch
 
 
-def has_task_completed(dispatched_task):
+def has_task_completed(task):
     """
-    Wait a couple of seconds until the task finishes its run.
+    Verify whether an immediate task ran properly.
 
     Returns:
-        bool: True if the task ends successfully.
+        bool: True if the task ended successfully.
 
     Raises:
-        Exception: If an error occurs during the task's runtime.
-        Throttled: If the task did not finish within a predefined timespan.
+        Exception: If an error occured during the task's runtime.
+        Throttled: If the task did not run due to resource constraints.
 
     """
-    for dummy in range(3):
-        time.sleep(1)
-        task = Task.objects.get(pk=dispatched_task.pk)
-        if task.state == "completed":
-            task.delete()
-            return True
-        elif task.state in ["waiting", "running"]:
-            continue
-        else:
-            error = task.error
-            task.delete()
-            raise Exception(str(error))
-    raise Throttled()
+    if task.state == "completed":
+        task.delete()
+        return True
+    elif task.state == "canceled":
+        raise Throttled()
+    else:
+        error = task.error
+        task.delete()
+        raise Exception(str(error))
 
 
 class PomResponse(Response):
@@ -175,6 +170,8 @@ class MavenApiViewSet(APIView):
         dispatched_task = dispatch(
             add_and_remove,
             exclusive_resources=[repo],
+            immediate=True,
+            deferred=False,
             kwargs={
                 "repository_pk": str(repo.pk),
                 "add_content_units": add_content_units,
