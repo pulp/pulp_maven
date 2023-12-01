@@ -49,6 +49,7 @@ extensions = [
     'sphinx.ext.napoleon',
     'sphinxcontrib.openapi',
     'sphinxcontrib.jquery',
+    'sphinx_markdown_builder'
 ]
 
 # Add any paths that contain templates here, relative to this directory.

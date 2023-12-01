@@ -193,3 +193,8 @@ doctest:
 
 run:
 	cd $(BUILDDIR) && python -m http.server 8010
+
+markdown:
+	$(SPHINXBUILD) -b markdown $(ALLSPHINXOPTS) $(BUILDDIR)/markdown
+	@echo
+	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
