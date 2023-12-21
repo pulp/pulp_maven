@@ -13,6 +13,19 @@ Changelog
 
 .. towncrier release notes start
 
+0.8.0 (2023-12-20)
+==================
+
+Features
+--------
+
+- Changed the deploy api to use non blocking immediate tasks.
+  
+
+
+----
+
+
 0.7.0 (2023-11-02)
 ==================
 
