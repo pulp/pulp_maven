@@ -27,7 +27,7 @@ then
   exit
 fi
 
-twine upload -u pulp -p "$PYPI_PASSWORD" \
+twine upload -u __token__ -p "$PYPI_API_TOKEN" \
 "dist/pulp_maven_client-$VERSION-py3-none-any.whl" \
 "dist/pulp_maven-client-$VERSION.tar.gz" \
 ;
