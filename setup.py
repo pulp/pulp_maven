@@ -1,6 +1,7 @@
-#!/usr/bin/env python3
-
 from setuptools import find_packages, setup
+
+with open("README.rst") as f:
+    long_description = f.read()
 
 with open("requirements.txt") as requirements:
     requirements = requirements.readlines()
@@ -9,6 +10,8 @@ setup(
     name="pulp-maven",
     version="0.8.1.dev",
     description="pulp-maven plugin for the Pulp Project",
+    long_description=long_description,
+    long_description_content_type="text/x-rst",
     license="GPLv2+",
     author="Pulp Project Developers",
     author_email="pulp-dev@redhat.com",
