@@ -1,4 +1,5 @@
 import os
+import pytest
 import subprocess
 from urllib.parse import urljoin
 from pulp_maven.tests.functional.utils import download_file
@@ -24,18 +25,17 @@ def test_mvn_deploy_workflow(
             ["sed", "-i", f"s/maven-snapshots/{repo.name}/g", f"{tmp_path}/simple-project/pom.xml"]
         )
         # Run mvn deploy
-        result = subprocess.run(
+        subprocess.run(
             ["mvn", "deploy"],
             cwd=f"{tmp_path}/simple-project",
-            check=False,
+            check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        print(result.stdout.decode())
-        print(result.stderr.decode())
     except subprocess.CalledProcessError as e:
         # The command had a non-zero exit code
-        print(e.stderr.decode())
+        msg = e.stdout.decode() + e.stderr.decode()
+        pytest.fail(msg)
 
     # Assert that the latest version is 12
     repo = maven_repo_api_client.read(repo.pulp_href)
