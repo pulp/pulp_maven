@@ -70,3 +70,30 @@ jobs:
 
             [noissue]
           delete-branch: true
+      - uses: "actions/checkout@v4"
+        with:
+          fetch-depth: 0
+          path: "pulp_maven"
+          ref: "0.8"
+
+      - name: "Run update"
+        working-directory: "pulp_maven"
+        run: |
+          ../plugin_template/scripts/update_ci.sh
+
+      - name: "Create Pull Request for CI files"
+        uses: "peter-evans/create-pull-request@v6"
+        with:
+          token: "${{ secrets.RELEASE_TOKEN }}"
+          path: "pulp_maven"
+          committer: "pulpbot <pulp-infra@redhat.com>"
+          author: "pulpbot <pulp-infra@redhat.com>"
+          title: "Update CI files for branch 0.8"
+          body: ""
+          branch: "update-ci/0.8"
+          base: "0.8"
+          commit-message: |
+            Update CI files
+
+            [noissue]
+          delete-branch: true
