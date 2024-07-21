@@ -18,9 +18,7 @@ cd "$(dirname "$(realpath -e "$0")")"/../../..
 pushd ../pulp-openapi-generator
 rm -rf "pulp_maven-client"
 
-# We need to copy that over to be visible in the container.
-cp "../pulp_maven/maven-api.json" .
-./gen-client.sh "maven-api.json" "maven" python "pulp_maven"
+./gen-client.sh "../pulp_maven/maven-api.json" "maven" python "pulp_maven"
 
 pushd pulp_maven-client
 python setup.py sdist bdist_wheel --python-tag py3
