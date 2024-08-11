@@ -21,11 +21,8 @@ PLUGIN_SOURCE="./pulp_maven/dist/pulp_maven-${PLUGIN_VERSION}-py3-none-any.whl"
 export PULP_API_ROOT="/pulp/"
 
 PIP_REQUIREMENTS=("pulp-cli-maven")
-if [[ "$TEST" = "docs" || "$TEST" = "publish" ]]
-then
-  PIP_REQUIREMENTS+=("-r" "doc_requirements.txt")
-fi
 
+# This must be the **only** call to "pip install" on the test runner.
 pip install ${PIP_REQUIREMENTS[*]}
 
 
