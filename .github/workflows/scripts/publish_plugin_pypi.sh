@@ -28,6 +28,6 @@ then
 fi
 
 twine upload -u __token__ -p "$PYPI_API_TOKEN" \
-"dist/pulp_maven-$VERSION-py3-none-any.whl" \
-"dist/pulp-maven-$VERSION.tar.gz" \
+dist/pulp?maven-"$VERSION"-py3-none-any.whl \
+dist/pulp?maven-"$VERSION".tar.gz \
 ;
