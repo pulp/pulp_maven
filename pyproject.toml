@@ -5,6 +5,41 @@ requires = [
 ]
 build-backend = 'setuptools.build_meta'
 
+[project]
+name = "pulp-maven"
+version = "0.9.0.dev"
+description = "pulp-maven plugin for the Pulp Project"
+readme = "README.rst"
+authors = [
+  {name="Pulp Team", email="pulp-list@redhat.com"},
+]
+classifiers=[
+  "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
+  "Operating System :: POSIX :: Linux",
+  "Development Status :: 4 - Beta",
+  "Framework :: Django",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+]
+requires-python = ">=3.9"
+dependencies = [
+  "pulpcore>=3.49.0,<3.70",
+]
+
+[project.urls]
+Homepage = "https://pulpproject.org"
+Documentation = "https://pulpproject.org/pulp_maven/"
+Repository = "https://github.com/pulp/pulp_maven"
+"Bug Tracker" = "https://github.com/pulp/pulp_maven/issues"
+Changelog = "https://pulpproject.org/pulp_maven/changes/"
+
+[project.entry-points."pulpcore.plugin"]
+pulp_maven = "pulp_maven:default_app_config"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
 [tool.towncrier]
 package = "pulp_maven"
 filename = "CHANGES.md"
@@ -45,7 +80,6 @@ underlines = ["", "", ""]
         name = "Misc"
         showcontent = false
 
-
 [tool.black]
 line-length = 100
 target-version = ["py36", "py37"]
@@ -61,25 +95,6 @@ exclude = '''
   | docs
 )/
 '''
-
-[tool.check-manifest]
-ignore = [
-    ".bumpversion.cfg",
-    ".gitleaks.toml",
-    "CHANGES/**",
-    "CONTRIBUTING.rst",
-    "HISTORY.rst",
-    "dev_requirements.txt",
-    "doc_requirements.txt",
-    "docs/**",
-    "staging_docs/**",
-    "template_config.yml",
-    ".pep8speaks.yml",
-    ".ci/**",
-    ".github/**",
-    "lint_requirements.txt",
-    ".flake8",
-]
 
 [tool.bumpversion]
 # This section is managed by the plugin template. Do not edit manually.
@@ -111,3 +126,22 @@ replace = "version = \"{new_version}\""
 
 [[tool.bumpversion.files]]
 filename = "./setup.py"
+
+[tool.check-manifest]
+ignore = [
+    ".bumpversion.cfg",
+    ".gitleaks.toml",
+    "CHANGES/**",
+    "CONTRIBUTING.rst",
+    "HISTORY.rst",
+    "dev_requirements.txt",
+    "doc_requirements.txt",
+    "docs/**",
+    "staging_docs/**",
+    "template_config.yml",
+    ".pep8speaks.yml",
+    ".ci/**",
+    ".github/**",
+    "lint_requirements.txt",
+    ".flake8",
+]
