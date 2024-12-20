@@ -5,6 +5,41 @@ requires = [
 ]
 build-backend = 'setuptools.build_meta'
 
+[project]
+name = "pulp-maven"
+version = "0.9.0.dev"
+description = "pulp-maven plugin for the Pulp Project"
+readme = "README.rst"
+authors = [
+  {name="Pulp Team", email="pulp-list@redhat.com"},
+]
+classifiers=[
+  "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
+  "Operating System :: POSIX :: Linux",
+  "Development Status :: 4 - Beta",
+  "Framework :: Django",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+]
+requires-python = ">=3.9"
+dependencies = [
+  "pulpcore>=3.49.0,<3.70",
+]
+
+[project.urls]
+Homepage = "https://pulpproject.org"
+Documentation = "https://pulpproject.org/pulp_maven/"
+Repository = "https://github.com/pulp/pulp_maven"
+"Bug Tracker" = "https://github.com/pulp/pulp_maven/issues"
+Changelog = "https://pulpproject.org/pulp_maven/changes/"
+
+[project.entry-points."pulpcore.plugin"]
+pulp_maven = "pulp_maven:default_app_config"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
 [tool.towncrier]
 package = "pulp_maven"
 filename = "CHANGES.md"
@@ -45,7 +80,6 @@ underlines = ["", "", ""]
         name = "Misc"
         showcontent = false
 
-
 [tool.black]
 line-length = 100
 target-version = ["py36", "py37"]
@@ -62,6 +96,54 @@ exclude = '''
 )/
 '''
 
+[tool.bumpversion]
+# This section is managed by the plugin template. Do not edit manually.
+
+current_version = "0.9.0.dev"
+commit = false
+tag = false
+parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<alpha>0a)?(?P<patch>\\d+)(\\.(?P<release>[a-z]+))?"
+serialize = [
+  "{major}.{minor}.{patch}.{release}",
+  "{major}.{minor}.{patch}",
+  "{major}.{minor}.{alpha}{patch}.{release}",
+  "{major}.{minor}.{alpha}{patch}",
+]
+
+[tool.bumpversion.parts.alpha]
+# This section is managed by the plugin template. Do not edit manually.
+
+# This is sort of a hack. In PEP440 prerelease markers work quite differently.
+# But this fits best with the way we have been doing release versions.
+optional_value = "final"
+values = [
+  "0a",
+  "final",
+]
+independent = true
+
+[tool.bumpversion.parts.release]
+# This section is managed by the plugin template. Do not edit manually.
+
+optional_value = "prod"
+values = [
+  "dev",
+  "prod",
+]
+
+[[tool.bumpversion.files]]
+# This section is managed by the plugin template. Do not edit manually.
+
+filename = "./pulp_maven/app/__init__.py"
+search = "version = \"{current_version}\""
+replace = "version = \"{new_version}\""
+
+[[tool.bumpversion.files]]
+# This section is managed by the plugin template. Do not edit manually.
+
+filename = "./pyproject.toml"
+search = "version = \"{current_version}\""
+replace = "version = \"{new_version}\""
 [tool.check-manifest]
 ignore = [
     ".bumpversion.cfg",
@@ -80,4 +162,3 @@ ignore = [
     "lint_requirements.txt",
     ".flake8",
 ]
-

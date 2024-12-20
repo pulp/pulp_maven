@@ -30,7 +30,7 @@ fi
 COMMIT_MSG=$(git log --format=%B --no-merges -1)
 export COMMIT_MSG
 
-COMPONENT_VERSION=$(sed -ne "s/\s*version.*=.*['\"]\(.*\)['\"][\s,]*/\1/p" setup.py)
+COMPONENT_VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
 
 mkdir .ci/ansible/vars || true
 echo "---" > .ci/ansible/vars/main.yaml
@@ -43,11 +43,6 @@ export POST_BEFORE_INSTALL=$PWD/.github/workflows/scripts/post_before_install.sh
 
 if [ -f $PRE_BEFORE_INSTALL ]; then
   source $PRE_BEFORE_INSTALL
-fi
-
-if [[ -n $(echo -e $COMMIT_MSG | grep -P "Required PR:.*") ]]; then
-  echo "The Required PR mechanism has been removed. Consider adding a scm requirement to requirements.txt."
-  exit 1
 fi
 
 if [ "$GITHUB_EVENT_NAME" = "pull_request" ] || [ "${BRANCH_BUILD}" = "1" -a "${BRANCH}" != "main" ]
@@ -66,10 +61,10 @@ then
 fi
 
 if [[ "$TEST" = "pulp" ]]; then
-  python3 .ci/scripts/calc_constraints.py -u requirements.txt > upperbounds_constraints.txt
+  python3 .ci/scripts/calc_constraints.py -u pyproject.toml > upperbounds_constraints.txt
 fi
 if [[ "$TEST" = "lowerbounds" ]]; then
-  python3 .ci/scripts/calc_constraints.py requirements.txt > lowerbounds_constraints.txt
+  python3 .ci/scripts/calc_constraints.py pyproject.toml > lowerbounds_constraints.txt
 fi
 
 if [ -f $POST_BEFORE_INSTALL ]; then

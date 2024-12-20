@@ -48,7 +48,6 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ('core', '0062_add_new_distribution_mastermodel'),
         ('maven', '0003_mavenrepository'),
     ]
 
