@@ -40,6 +40,7 @@ def test_remote_crud_workflow(maven_remote_api_client, gen_object_with_cleanup, 
 
 
 @pytest.mark.parallel
+@pytest.mark.skip("Can't be properly tested without disabling client-side validation.")
 def test_create_maven_remote_with_invalid_parameter(
     maven_remote_api_client, gen_object_with_cleanup
 ):
@@ -56,6 +57,7 @@ def test_create_maven_remote_with_invalid_parameter(
 
 
 @pytest.mark.parallel
+@pytest.mark.skip("Can't be properly tested without disabling client-side validation")
 def test_create_maven_remote_without_url(maven_remote_api_client, gen_object_with_cleanup):
     with pytest.raises(ApiException) as exc:
         gen_object_with_cleanup(maven_remote_api_client, {"name": str(uuid.uuid4())})
