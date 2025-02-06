@@ -8,7 +8,7 @@ with open("requirements.txt") as requirements:
 
 setup(
     name="pulp-maven",
-    version="0.8.2",
+    version="0.8.3.dev",
     description="pulp-maven plugin for the Pulp Project",
     long_description=long_description,
     long_description_content_type="text/x-rst",
