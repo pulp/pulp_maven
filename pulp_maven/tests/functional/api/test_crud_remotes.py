@@ -5,7 +5,12 @@ import uuid
 
 import pytest
 
+import django
+
 from pulpcore.client.pulp_maven.exceptions import ApiException
+
+django.setup()
+from pulp_maven.app.serializers import MavenRemoteSerializer  # noqa
 
 
 @pytest.mark.parallel
@@ -40,29 +45,25 @@ def test_remote_crud_workflow(maven_remote_api_client, gen_object_with_cleanup, 
 
 
 @pytest.mark.parallel
-@pytest.mark.skip("Can't be properly tested without disabling client-side validation.")
-def test_create_maven_remote_with_invalid_parameter(
-    maven_remote_api_client, gen_object_with_cleanup
-):
+def test_create_maven_remote_with_invalid_parameter():
     unexpected_field_remote_data = {
         "name": str(uuid.uuid4()),
         "url": "http://example.com",
         "foo": "bar",
     }
 
-    with pytest.raises(ApiException) as exc:
-        gen_object_with_cleanup(maven_remote_api_client, unexpected_field_remote_data)
-    assert exc.value.status == 400
-    assert json.loads(exc.value.body) == {"foo": ["Unexpected field"]}
+    maven_remote_serializer = MavenRemoteSerializer(data=unexpected_field_remote_data)
+
+    assert maven_remote_serializer.is_valid() is False
+    assert maven_remote_serializer.errors["foo"][0].title() == "Unexpected Field"
 
 
 @pytest.mark.parallel
-@pytest.mark.skip("Can't be properly tested without disabling client-side validation")
 def test_create_maven_remote_without_url(maven_remote_api_client, gen_object_with_cleanup):
-    with pytest.raises(ApiException) as exc:
-        gen_object_with_cleanup(maven_remote_api_client, {"name": str(uuid.uuid4())})
-    assert exc.value.status == 400
-    assert json.loads(exc.value.body) == {"url": ["This field is required."]}
+    maven_remote_serializer = MavenRemoteSerializer(data={"name": str(uuid.uuid4())})
+
+    assert maven_remote_serializer.is_valid() is False
+    assert maven_remote_serializer.errors["url"][0].title() == "This Field Is Required."
 
 
 @pytest.mark.parallel
