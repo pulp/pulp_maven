@@ -6,6 +6,7 @@ import re
 from django.db import models
 
 from pulpcore.plugin.models import Content, Remote, Repository, Distribution
+from pulpcore.plugin.util import get_domain_pk
 
 logger = getLogger(__name__)
 
@@ -46,6 +47,7 @@ class MavenArtifact(MavenContentMixin, Content):
 
     TYPE = "artifact"
 
+    _pulp_domain = models.ForeignKey("core.Domain", default=get_domain_pk, on_delete=models.PROTECT)
     group_id = models.CharField(max_length=255, null=False)
     artifact_id = models.CharField(max_length=255, null=False)
     version = models.CharField(max_length=255, null=False)
@@ -53,7 +55,7 @@ class MavenArtifact(MavenContentMixin, Content):
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
-        unique_together = ("group_id", "artifact_id", "version", "filename")
+        unique_together = ("group_id", "artifact_id", "version", "filename", "_pulp_domain")
 
     @staticmethod
     def init_from_artifact_and_relative_path(artifact, relative_path):
@@ -86,6 +88,7 @@ class MavenMetadata(MavenContentMixin, Content):
 
     TYPE = "metadata"
 
+    _pulp_domain = models.ForeignKey("core.Domain", default=get_domain_pk, on_delete=models.PROTECT)
     group_id = models.CharField(max_length=255, null=False)
     artifact_id = models.CharField(max_length=255, null=False)
     version = models.CharField(max_length=255, null=True)
@@ -94,7 +97,14 @@ class MavenMetadata(MavenContentMixin, Content):
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
-        unique_together = ("group_id", "artifact_id", "version", "filename", "sha256")
+        unique_together = (
+            "group_id",
+            "artifact_id",
+            "version",
+            "filename",
+            "sha256",
+            "_pulp_domain",
+        )
 
     @staticmethod
     def init_from_artifact_and_relative_path(artifact, relative_path):

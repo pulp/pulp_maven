@@ -44,7 +44,8 @@ pulp_scheme: https
 pulp_settings: null
 pulp_settings_azure: null
 pulp_settings_gcp: null
-pulp_settings_s3: null
+pulp_settings_s3:
+  domain_enabled: true
 pydocstyle: true
 release_email: pulp-infra@redhat.com
 release_user: pulpbot
