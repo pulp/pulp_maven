@@ -6,8 +6,10 @@ from pulp_maven.tests.functional.utils import download_file
 
 
 def test_mvn_deploy_workflow(
-    maven_repo_api_client, maven_repo_factory, maven_distribution_factory, tmp_path
+    maven_repo_api_client, maven_repo_factory, maven_distribution_factory, tmp_path, pulp_settings
 ):
+    if pulp_settings.DOMAIN_ENABLED:
+        pytest.skip("Maven deploy API does not currently work with domains enabled.")
     # Create a repository and distribution pointing to that repository.
     repo = maven_repo_factory()
     maven_distribution_factory(repository=repo.pulp_href)

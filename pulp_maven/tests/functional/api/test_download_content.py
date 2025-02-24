@@ -15,6 +15,7 @@ def test_download_content(
     maven_distro_api_client,
     maven_repo_api_client,
     monitor_task,
+    distribution_base_url,
 ):
     """Verify whether content served by pulp can be downloaded.
 
@@ -43,7 +44,7 @@ def test_download_content(
     remote_unit_checksum = hashlib.sha256(downloaded_file.body).hexdigest()
 
     # And from Pulp
-    pulp_unit_url = urljoin(distribution.base_url, unit_path)
+    pulp_unit_url = urljoin(distribution_base_url(distribution.base_url), unit_path)
     downloaded_file = download_file(pulp_unit_url)
     pulp_unit_checksum = hashlib.sha256(downloaded_file.body).hexdigest()
 
