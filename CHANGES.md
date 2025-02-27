@@ -8,6 +8,19 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.9.0 (2025-02-27) {: #0.9.0 }
+
+#### Features {: #0.9.0-feature }
+
+- Adds domain support for the Pulp API. No support for maven deploy (yet).
+  [#244](https://github.com/pulp/pulp_maven/issues/244)
+
+#### Misc {: #0.9.0-misc }
+
+- [#234](https://github.com/pulp/pulp_maven/issues/234), [#239](https://github.com/pulp/pulp_maven/issues/239)
+
+---
+
 ## 0.8.3 (2025-02-25) {: #0.8.3 }
 
 No significant changes.
