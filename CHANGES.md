@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.10.0 (2025-03-31) {: #0.10.0 }
+
+#### Features {: #0.10.0-feature }
+
+- Added domain support to the `mvn deploy` API.
+  [#258](https://github.com/pulp/pulp_maven/issues/258)
+
+---
+
 ## 0.9.0 (2025-02-27) {: #0.9.0 }
 
 #### Features {: #0.9.0-feature }
