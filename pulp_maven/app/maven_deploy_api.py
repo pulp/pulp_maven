@@ -18,6 +18,7 @@ from pulp_maven.app.models import (
 )
 from pulpcore.plugin.models import Artifact, ContentArtifact
 from pulpcore.plugin.tasking import add_and_remove, dispatch
+from pulpcore.plugin.util import get_domain
 
 
 def has_task_completed(task):
@@ -41,6 +42,13 @@ def has_task_completed(task):
         error = task.error
         task.delete()
         raise Exception(str(error))
+
+
+def get_full_path(base_path, pulp_domain=None):
+    if settings.DOMAIN_ENABLED:
+        domain = pulp_domain or get_domain()
+        return f"{domain.name}/{base_path}"
+    return base_path
 
 
 class PomResponse(Response):
@@ -71,13 +79,15 @@ class MavenApiViewSet(APIView):
 
     def redirect_to_content_app(self, distribution, relative_path):
         return redirect(
-            f"{settings.CONTENT_ORIGIN}{settings.CONTENT_PATH_PREFIX}{distribution.base_path}/"
-            f"{relative_path}"
+            f"{settings.CONTENT_ORIGIN}{settings.CONTENT_PATH_PREFIX}"
+            f"{get_full_path(distribution.base_path)}/{relative_path}"
         )
 
     def get_repository_and_distributions(self, name):
-        repository = get_object_or_404(MavenRepository, name=name)
-        distribution = get_object_or_404(MavenDistribution, repository=repository)
+        repository = get_object_or_404(MavenRepository, name=name, pulp_domain=get_domain())
+        distribution = get_object_or_404(
+            MavenDistribution, repository=repository, pulp_domain=get_domain()
+        )
         return repository, distribution
 
     @staticmethod
@@ -136,13 +146,14 @@ class MavenApiViewSet(APIView):
             content.save()
         except IntegrityError:
             if is_metadata:
-                content = MavenMetadata.objects.get(sha256=content.sha256)
+                content = MavenMetadata.objects.get(sha256=content.sha256, pulp_domain=get_domain())
             else:
                 content = MavenArtifact.objects.get(
                     group_id=content.group_id,
                     artifact_id=content.artifact_id,
                     version=content.version,
                     filename=content.filename,
+                    pulp_domain=get_domain(),
                 )
         ca = ContentArtifact(artifact=artifact, content=content, relative_path=path)
         try:
@@ -160,6 +171,7 @@ class MavenApiViewSet(APIView):
                 artifact_id=content.artifact_id,
                 version=content.version,
                 filename=content.filename,
+                pulp_domain=get_domain(),
             )
             remove_content_units = [str(c[0]) for c in metadata_to_remove.values_list("pk")]
         else:
@@ -202,10 +214,10 @@ class MavenApiViewSet(APIView):
             digests = {}
             for algorithm in Artifact.DIGEST_FIELDS:
                 digests[algorithm] = hashers[algorithm].hexdigest()
-            artifact = Artifact(file=temp_file.name, size=size, **digests)
+            artifact = Artifact(file=temp_file.name, size=size, pulp_domain=get_domain(), **digests)
             try:
                 artifact.save()
             except IntegrityError:
-                artifact = Artifact.objects.get(sha256=artifact.sha256)
+                artifact = Artifact.objects.get(sha256=artifact.sha256, pulp_domain=get_domain())
                 artifact.touch()
             return artifact

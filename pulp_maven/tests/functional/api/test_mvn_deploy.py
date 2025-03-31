@@ -8,8 +8,6 @@ from pulp_maven.tests.functional.utils import download_file
 def test_mvn_deploy_workflow(
     maven_repo_api_client, maven_repo_factory, maven_distribution_factory, tmp_path, pulp_settings
 ):
-    if pulp_settings.DOMAIN_ENABLED:
-        pytest.skip("Maven deploy API does not currently work with domains enabled.")
     # Create a repository and distribution pointing to that repository.
     repo = maven_repo_factory()
     maven_distribution_factory(repository=repo.pulp_href)
@@ -23,8 +21,19 @@ def test_mvn_deploy_workflow(
             ["cp", "-r", f"{current_dir}/../../assets/simple-project", f"{tmp_path}/simple-project"]
         )
         # Update pom.xml to point the Snapshots repository to the test repository
+        if pulp_settings.DOMAIN_ENABLED:
+            escaped_repo_name = rf"default\/{repo.name}"
+            repo_name = f"default/{repo.name}"
+        else:
+            escaped_repo_name = repo.name
+            repo_name = repo.name
         subprocess.check_output(
-            ["sed", "-i", f"s/maven-snapshots/{repo.name}/g", f"{tmp_path}/simple-project/pom.xml"]
+            [
+                "sed",
+                "-i",
+                f"s/maven-snapshots/{escaped_repo_name}/g",
+                f"{tmp_path}/simple-project/pom.xml",
+            ]
         )
         # Run mvn deploy
         subprocess.run(
@@ -46,7 +55,8 @@ def test_mvn_deploy_workflow(
     # Assert that you can get the metadata for the simple-project
     pulp_unit_url = urljoin(
         "http://localhost:24817",
-        f"/pulp/maven/{repo.name}/org/sonatype/nexus/examples/simple-project/maven-metadata.xml",
+        f"/pulp/maven/{repo_name}/org/sonatype/nexus/examples/"
+        f"simple-project/maven-metadata.xml",
     )
     downloaded_file = download_file(pulp_unit_url)
     assert downloaded_file.response_obj.status == 200
