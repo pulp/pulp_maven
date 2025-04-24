@@ -77,9 +77,12 @@ class MavenApiViewSet(APIView):
     authentication_classes = []
     permission_classes = []
 
-    def redirect_to_content_app(self, distribution, relative_path):
+    def redirect_to_content_app(self, distribution, relative_path, request):
+        scheme = request.META.get("HTTP_X_FORWARDED_PROTO", request.scheme)
+        hostname = request.META.get("HTTP_X_FORWARDED_HOST", request.get_host())
+        content_origin = f"{scheme}://{hostname}"
         return redirect(
-            f"{settings.CONTENT_ORIGIN}{settings.CONTENT_PATH_PREFIX}"
+            f"{content_origin}{settings.CONTENT_PATH_PREFIX}"
             f"{get_full_path(distribution.base_path)}/{relative_path}"
         )
 
@@ -125,7 +128,7 @@ class MavenApiViewSet(APIView):
             model = MavenArtifact
         content = get_object_or_404(model, **kwargs)
         relative_path = content.contentartifact_set.get().relative_path
-        return self.redirect_to_content_app(distro, relative_path)
+        return self.redirect_to_content_app(distro, relative_path, request)
 
     def put(self, request, name, path):
         repo, distro = self.get_repository_and_distributions(name)
