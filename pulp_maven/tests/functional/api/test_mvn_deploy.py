@@ -54,7 +54,7 @@ def test_mvn_deploy_workflow(
 
     # Assert that you can get the metadata for the simple-project
     pulp_unit_url = urljoin(
-        "http://localhost:24817",
+        "http://localhost",
         f"/pulp/maven/{repo_name}/org/sonatype/nexus/examples/"
         f"simple-project/maven-metadata.xml",
     )
