@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.10.1 (2025-04-24) {: #0.10.1 }
+
+#### Bugfixes {: #0.10.1-bugfix }
+
+- Fixed bug related to multi-gateway deployments.
+  [#268](https://github.com/pulp/pulp_maven/issues/268)
+
+---
+
 ## 0.10.0 (2025-03-31) {: #0.10.0 }
 
 #### Features {: #0.10.0-feature }
