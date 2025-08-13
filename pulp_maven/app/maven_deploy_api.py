@@ -16,8 +16,9 @@ from pulp_maven.app.models import (
     MavenRepository,
     MavenDistribution,
 )
+from pulp_maven.app.tasks import aadd_and_remove
 from pulpcore.plugin.models import Artifact, ContentArtifact
-from pulpcore.plugin.tasking import add_and_remove, dispatch
+from pulpcore.plugin.tasking import dispatch
 from pulpcore.plugin.util import get_domain
 
 
@@ -183,7 +184,7 @@ class MavenApiViewSet(APIView):
         add_content_units = [str(content.pk)]
 
         dispatched_task = dispatch(
-            add_and_remove,
+            aadd_and_remove,
             exclusive_resources=[repo],
             immediate=True,
             deferred=False,
