@@ -139,13 +139,17 @@ Misc
 
 ---
 
-## 0.2.0 (2021-02-03) {: #0.2.0 }
+## YANKED 0.2.0 (2021-02-03) {: #0.2.0 }
+
+Yank reason: lax dependencies
 
 -   Added compatibility with pulpcore 3.10.
 
 ---
 
-## 0.1.0 (2020-02-11) {: #0.1.0 }
+## YANKED 0.1.0 (2020-02-11) {: #0.1.0 }
+
+Yank reason: lax dependencies
 
 ### Improved Documentation
 
