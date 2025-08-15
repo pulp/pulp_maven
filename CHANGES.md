@@ -8,6 +8,19 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.11.0 (2025-08-14) {: #0.11.0 }
+
+#### Bugfixes {: #0.11.0-bugfix }
+
+- Fixed bug related to multi-gateway deployments.
+  [#268](https://github.com/pulp/pulp_maven/issues/268)
+
+#### Removals {: #0.11.0-removal }
+
+- This release drops support for Python<3.11.
+
+---
+
 ## 0.10.1 (2025-04-24) {: #0.10.1 }
 
 #### Bugfixes {: #0.10.1-bugfix }
@@ -139,13 +152,17 @@ Misc
 
 ---
 
-## 0.2.0 (2021-02-03) {: #0.2.0 }
+## YANKED 0.2.0 (2021-02-03) {: #0.2.0 }
+
+Yank reason: lax dependencies
 
 -   Added compatibility with pulpcore 3.10.
 
 ---
 
-## 0.1.0 (2020-02-11) {: #0.1.0 }
+## YANKED 0.1.0 (2020-02-11) {: #0.1.0 }
+
+Yank reason: lax dependencies
 
 ### Improved Documentation
 
