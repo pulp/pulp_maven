@@ -21,10 +21,10 @@ rm -rf "pulp_maven-client"
 ./gen-client.sh "../pulp_maven/maven-api.json" "maven" python "pulp_maven"
 
 pushd pulp_maven-client
-python setup.py sdist bdist_wheel --python-tag py3
+python -m build
 
 twine check "dist/pulp_maven_client-"*"-py3-none-any.whl"
-twine check "dist/pulp_maven-client-"*".tar.gz"
+twine check "dist/pulp_maven_client-"*".tar.gz"
 
 tar cvf "../../pulp_maven/maven-python-client.tar" ./dist
 
