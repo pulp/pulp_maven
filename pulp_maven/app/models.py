@@ -26,7 +26,7 @@ class MavenContentMixin:
         """
         sub_path, filename = path.split(relative_path)
         sub_path, version = path.split(sub_path)
-        pattern = re.compile(r"\d+(\.\d+)?(\.\d+)?([.-][a-zA-Z0-9]+)*")
+        pattern = re.compile(r"^((?:[A-Za-z0-9]+[.-])+\d+(?:\.\d+){0,2}|\d+(?:\.\d+){0,2}(?:[.-][A-Za-z0-9]+)*)$")
         if pattern.match(version) is None:
             artifact_id = version
             version = None
