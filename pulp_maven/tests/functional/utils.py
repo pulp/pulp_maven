@@ -1,5 +1,6 @@
 # coding=utf-8
 """Utilities for tests for the maven plugin."""
+
 import aiohttp
 import asyncio
 from dataclasses import dataclass
