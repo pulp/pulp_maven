@@ -7,7 +7,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = "pulp-maven"
-version = "0.12.0.dev"
+version = "0.13.0.dev"
 description = "pulp-maven plugin for the Pulp Project"
 readme = "README.rst"
 authors = [
@@ -23,7 +23,7 @@ classifiers=[
 ]
 requires-python = ">=3.11"
 dependencies = [
-  "pulpcore>=3.73.0,<3.100",
+  "pulpcore>=3.73.0,<3.115",
 ]
 
 [project.urls]
@@ -98,7 +98,7 @@ exclude = '''
 [tool.bumpversion]
 # This section is managed by the plugin template. Do not edit manually.
 
-current_version = "0.12.0.dev"
+current_version = "0.13.0.dev"
 commit = false
 tag = false
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<alpha>0a)?(?P<patch>\\d+)(\\.(?P<release>[a-z]+))?"
@@ -160,4 +160,6 @@ ignore = [
     ".github/**",
     "lint_requirements.txt",
     ".flake8",
+    "AGENTS.md",
+    "CLAUDE.md",
 ]
