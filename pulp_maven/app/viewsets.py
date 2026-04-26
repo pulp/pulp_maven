@@ -2,9 +2,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
 
 from pulpcore.plugin.serializers import AsyncOperationResponseSerializer
-
 from pulpcore.plugin.tasking import dispatch
-
 from pulpcore.plugin.viewsets import (
     ContentFilter,
     ContentViewSet,
@@ -15,16 +13,14 @@ from pulpcore.plugin.viewsets import (
     RepositoryViewSet,
 )
 
-from pulp_maven.app.models import MavenArtifact, MavenRemote, MavenRepository, MavenDistribution
-
+from pulp_maven.app.models import MavenArtifact, MavenDistribution, MavenRemote, MavenRepository
 from pulp_maven.app.serializers import (
     MavenArtifactSerializer,
+    MavenDistributionSerializer,
     MavenRemoteSerializer,
     MavenRepositorySerializer,
-    MavenDistributionSerializer,
     RepositoryAddCachedContentSerializer,
 )
-
 from pulp_maven.app.tasks import add_cached_content_to_repository
 
 

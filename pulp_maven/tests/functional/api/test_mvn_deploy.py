@@ -1,7 +1,9 @@
 import os
-import pytest
 import subprocess
 from urllib.parse import urljoin
+
+import pytest
+
 from pulp_maven.tests.functional.utils import download_file
 
 
@@ -55,8 +57,7 @@ def test_mvn_deploy_workflow(
     # Assert that you can get the metadata for the simple-project
     pulp_unit_url = urljoin(
         "http://localhost",
-        f"/pulp/maven/{repo_name}/org/sonatype/nexus/examples/"
-        f"simple-project/maven-metadata.xml",
+        f"/pulp/maven/{repo_name}/org/sonatype/nexus/examples/simple-project/maven-metadata.xml",
     )
     downloaded_file = download_file(pulp_unit_url)
     assert downloaded_file.response_obj.status == 200

@@ -1,11 +1,11 @@
+import re
 from gettext import gettext as _
 from logging import getLogger
 from os import path
-import re
 
 from django.db import models
 
-from pulpcore.plugin.models import Content, Remote, Repository, Distribution
+from pulpcore.plugin.models import Content, Distribution, Remote, Repository
 from pulpcore.plugin.util import get_domain_pk
 
 logger = getLogger(__name__)
