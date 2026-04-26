@@ -3,9 +3,8 @@
 import json
 import uuid
 
-import pytest
-
 import django
+import pytest
 
 from pulpcore.client.pulp_maven.exceptions import ApiException
 
