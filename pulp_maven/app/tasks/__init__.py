@@ -1,10 +1,11 @@
 import datetime
 
 from asgiref.sync import sync_to_async
-from pulp_maven.app.models import MavenRemote, MavenRepository
 
 from pulpcore.plugin.models import Content, ContentArtifact, RemoteArtifact
 from pulpcore.plugin.tasking import add_and_remove
+
+from pulp_maven.app.models import MavenRemote, MavenRepository
 
 
 async def aadd_and_remove(*args, **kwargs):

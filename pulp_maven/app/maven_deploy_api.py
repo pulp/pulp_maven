@@ -3,23 +3,23 @@ import re
 from tempfile import NamedTemporaryFile
 
 from django.conf import settings
-from django.shortcuts import get_object_or_404, redirect
 from django.db import IntegrityError
-
+from django.shortcuts import get_object_or_404, redirect
 from rest_framework.exceptions import Throttled
-from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from pulp_maven.app.models import (
-    MavenArtifact,
-    MavenMetadata,
-    MavenRepository,
-    MavenDistribution,
-)
-from pulp_maven.app.tasks import aadd_and_remove
 from pulpcore.plugin.models import Artifact, ContentArtifact
 from pulpcore.plugin.tasking import dispatch
 from pulpcore.plugin.util import get_domain
+
+from pulp_maven.app.models import (
+    MavenArtifact,
+    MavenDistribution,
+    MavenMetadata,
+    MavenRepository,
+)
+from pulp_maven.app.tasks import aadd_and_remove
 
 
 def has_task_completed(task):

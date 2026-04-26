@@ -1,8 +1,9 @@
 """Tests that verify download of content served by Pulp."""
 
-from aiohttp.client_exceptions import ClientResponseError
 import hashlib
 from urllib.parse import urljoin
+
+from aiohttp.client_exceptions import ClientResponseError
 
 from pulp_maven.tests.functional.utils import download_file
 
