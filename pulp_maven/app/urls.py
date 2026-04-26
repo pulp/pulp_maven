@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.urls import re_path
+
 from pulp_maven.app.maven_deploy_api import MavenApiViewSet
 
 if settings.DOMAIN_ENABLED:
