@@ -1,0 +1,1 @@
+Fixed Maven version parsing so non-numeric versions (e.g. RELEASE, master-SNAPSHOT, INT-7144.1.0.2) are no longer misparsed as the artifactId with a null version, which caused HTTP 500 on upload.

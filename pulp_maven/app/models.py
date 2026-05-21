@@ -13,12 +13,19 @@ logger = getLogger(__name__)
 
 class MavenContentMixin:
     @staticmethod
-    def group_artifact_version_filename(relative_path):
+    def group_artifact_version_filename(relative_path, version_present=None):
         """
         Converts a relative path into a tuple of group_id, artifact_id, and version.
 
         Args:
             relative_path (str): Relative path for the artifact in the repository.
+            version_present (bool): Whether the path is known to contain a
+                version directory. Binary artifacts (jar/pom/war/...) always do
+                in the standard Maven layout, so callers handling them should
+                pass ``True``. ``None`` (the default) keeps the legacy
+                best-effort detection, used for metadata where an artifact-level
+                ``maven-metadata.xml`` lives directly under the artifactId with
+                no version directory.
 
         Returns:
             Tuple (group_id, artifact_id, version, filename)
@@ -26,13 +33,21 @@ class MavenContentMixin:
         """
         sub_path, filename = path.split(relative_path)
         sub_path, version = path.split(sub_path)
-        pattern = re.compile(r"\d+(\.\d+)?(\.\d+)?([.-][a-zA-Z0-9]+)*")
-        if pattern.match(version) is None:
-            artifact_id = version
-            version = None
+        if version_present is None:
+            # Legacy heuristic. A Maven version is a free-form string, so a
+            # numeric-only pattern misclassifies valid non-numeric versions
+            # (e.g. "RELEASE", "master-SNAPSHOT", "INT-7144.1.0.2"): they are
+            # mistaken for the artifactId and ``version`` becomes ``None``.
+            # Callers that know a version directory is present should pass
+            # version_present=True to skip this guess.
+            pattern = re.compile(r"\d+(\.\d+)?(\.\d+)?([.-][a-zA-Z0-9]+)*")
+            version_present = pattern.match(version) is not None
+        if version_present:
+            sub_path, artifact_id = path.split(sub_path)
             group_id = sub_path.replace("/", ".")
         else:
-            sub_path, artifact_id = path.split(sub_path)
+            artifact_id = version
+            version = None
             group_id = sub_path.replace("/", ".")
 
         return group_id, artifact_id, version, filename
@@ -71,7 +86,7 @@ class MavenArtifact(MavenContentMixin, Content):
             raise ValueError(_("Relative path can't start with '/'."))
 
         group_id, artifact_id, version, f_name = MavenArtifact.group_artifact_version_filename(
-            relative_path
+            relative_path, version_present=True
         )
 
         return MavenArtifact(
