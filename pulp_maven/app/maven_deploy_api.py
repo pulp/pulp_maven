@@ -3,8 +3,8 @@ import re
 from tempfile import NamedTemporaryFile
 
 from django.conf import settings
-from django.http import Http404
 from django.db import IntegrityError
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from rest_framework.exceptions import Throttled
 from rest_framework.response import Response
