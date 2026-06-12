@@ -3,6 +3,7 @@ import re
 from tempfile import NamedTemporaryFile
 
 from django.conf import settings
+from django.http import Http404
 from django.db import IntegrityError
 from django.shortcuts import get_object_or_404, redirect
 from rest_framework.exceptions import Throttled
@@ -89,9 +90,11 @@ class MavenApiViewSet(APIView):
 
     def get_repository_and_distributions(self, name):
         repository = get_object_or_404(MavenRepository, name=name, pulp_domain=get_domain())
-        distribution = get_object_or_404(
-            MavenDistribution, repository=repository, pulp_domain=get_domain()
-        )
+        distribution = MavenDistribution.objects.filter(
+            repository=repository, pulp_domain=get_domain()
+        ).first()
+        if distribution is None:
+            raise Http404
         return repository, distribution
 
     @staticmethod
