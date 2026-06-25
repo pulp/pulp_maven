@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.14.0 (2026-06-25) {: #0.14.0 }
+
+#### Features {: #0.14.0-feature }
+
+- Added ``ModifyRepositoryActionMixin`` to ``MavenRepositoryViewSet``, enabling the standard
+  ``/modify/`` endpoint for adding and removing content units between Maven repositories.
+
+---
+
 ## 0.13.0 (2026-06-12) {: #0.13.0 }
 
 No significant changes.
