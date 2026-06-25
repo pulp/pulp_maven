@@ -1,6 +1,7 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
 
+from pulpcore.plugin.actions import ModifyRepositoryActionMixin
 from pulpcore.plugin.serializers import AsyncOperationResponseSerializer
 from pulpcore.plugin.tasking import dispatch
 from pulpcore.plugin.viewsets import (
@@ -55,7 +56,7 @@ class MavenRemoteViewSet(RemoteViewSet):
     serializer_class = MavenRemoteSerializer
 
 
-class MavenRepositoryViewSet(RepositoryViewSet):
+class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin):
     """
     A ViewSet for MavenRemote.
     """
