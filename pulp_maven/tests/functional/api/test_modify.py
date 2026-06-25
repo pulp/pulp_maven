@@ -37,9 +37,7 @@ def test_modify_add_content_units(
     assert source_repo.latest_version_href.endswith("/versions/1/")
 
     # Find the content unit that was added
-    content = maven_artifact_api_client.list(
-        repository_version=source_repo.latest_version_href
-    )
+    content = maven_artifact_api_client.list(repository_version=source_repo.latest_version_href)
     assert content.count >= 1
     content_unit_href = content.results[0].pulp_href
 
@@ -57,9 +55,7 @@ def test_modify_add_content_units(
     assert dest_repo.latest_version_href.endswith("/versions/1/")
 
     # Verify the content is in the destination repo
-    dest_content = maven_artifact_api_client.list(
-        repository_version=dest_repo.latest_version_href
-    )
+    dest_content = maven_artifact_api_client.list(repository_version=dest_repo.latest_version_href)
     assert dest_content.count == 1
     assert dest_content.results[0].pulp_href == content_unit_href
 
@@ -94,9 +90,7 @@ def test_modify_remove_all_content_units(
     assert content.count >= 1
 
     # Remove all content using the wildcard
-    modify_response = maven_repo_api_client.modify(
-        repo.pulp_href, {"remove_content_units": ["*"]}
-    )
+    modify_response = maven_repo_api_client.modify(repo.pulp_href, {"remove_content_units": ["*"]})
     monitor_task(modify_response.task)
 
     repo = maven_repo_api_client.read(repo.pulp_href)
@@ -139,9 +133,7 @@ def test_modify_multiple_content_units(
     monitor_task(maven_repo_api_client.add_cached_content(source_repo.pulp_href, {}).task)
     source_repo = maven_repo_api_client.read(source_repo.pulp_href)
 
-    content = maven_artifact_api_client.list(
-        repository_version=source_repo.latest_version_href
-    )
+    content = maven_artifact_api_client.list(repository_version=source_repo.latest_version_href)
     assert content.count >= 2
     content_hrefs = [c.pulp_href for c in content.results[:2]]
 
@@ -155,7 +147,5 @@ def test_modify_multiple_content_units(
     dest_repo = maven_repo_api_client.read(dest_repo.pulp_href)
     assert dest_repo.latest_version_href.endswith("/versions/1/")
 
-    dest_content = maven_artifact_api_client.list(
-        repository_version=dest_repo.latest_version_href
-    )
+    dest_content = maven_artifact_api_client.list(repository_version=dest_repo.latest_version_href)
     assert dest_content.count == len(content_hrefs)
