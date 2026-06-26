@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.16.0 (2026-06-26) {: #0.16.0 }
+
+#### Features {: #0.16.0-feature }
+
+- Added an async upload API for Maven artifacts that supports file uploads, labels, and
+  optionally adding content to a repository in a single request.
+
+---
+
 ## 0.13.0 (2026-06-12) {: #0.13.0 }
 
 No significant changes.
