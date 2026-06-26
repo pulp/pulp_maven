@@ -9,24 +9,24 @@ from pulpcore.plugin.serializers import AsyncOperationResponseSerializer
 from pulpcore.plugin.tasking import dispatch
 from pulpcore.plugin.viewsets import (
     ContentFilter,
-    ContentViewSet,
     DistributionViewSet,
     OperationPostponedResponse,
     RemoteViewSet,
     RepositoryVersionViewSet,
     RepositoryViewSet,
+    SingleArtifactContentUploadViewSet,
 )
 
-from pulp_maven.app.maven_deploy_api import has_task_completed
 from pulp_maven.app.models import MavenArtifact, MavenDistribution, MavenRemote, MavenRepository
 from pulp_maven.app.serializers import (
     MavenArtifactSerializer,
+    MavenArtifactUploadSerializer,
     MavenDistributionSerializer,
     MavenRemoteSerializer,
     MavenRepositorySerializer,
     RepositoryAddCachedContentSerializer,
 )
-from pulp_maven.app.tasks import aadd_and_remove, add_cached_content_to_repository
+from pulp_maven.app.tasks import add_cached_content_to_repository
 
 
 class MavenArtifactFilter(ContentFilter):
@@ -39,7 +39,7 @@ class MavenArtifactFilter(ContentFilter):
         fields = ["group_id", "artifact_id", "version", "filename"]
 
 
-class MavenArtifactViewSet(ContentViewSet):
+class MavenArtifactViewSet(SingleArtifactContentUploadViewSet):
     """
     A ViewSet for MavenArtifact.
     """
@@ -49,27 +49,19 @@ class MavenArtifactViewSet(ContentViewSet):
     serializer_class = MavenArtifactSerializer
     filterset_class = MavenArtifactFilter
 
-    def create(self, request, *args, **kwargs):
+    @extend_schema(
+        description="Synchronously upload a Maven artifact.",
+        request=MavenArtifactUploadSerializer,
+        responses={201: MavenArtifactSerializer},
+        summary="Upload a Maven artifact synchronously.",
+    )
+    @action(detail=False, methods=["post"], serializer_class=MavenArtifactUploadSerializer)
+    def upload(self, request):
+        """Create a Maven artifact synchronously."""
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        repository = serializer.validated_data.pop("repository", None)
         with transaction.atomic():
+            serializer.is_valid(raise_exception=True)
             serializer.save()
-
-        if repository:
-            dispatched_task = dispatch(
-                aadd_and_remove,
-                exclusive_resources=[repository],
-                immediate=True,
-                deferred=False,
-                kwargs={
-                    "repository_pk": str(repository.pk),
-                    "add_content_units": [str(serializer.instance.pk)],
-                    "remove_content_units": [],
-                },
-            )
-            has_task_completed(dispatched_task)
 
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
