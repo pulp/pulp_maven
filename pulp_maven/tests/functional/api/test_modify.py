@@ -31,8 +31,7 @@ def test_modify_add_content_units(
     downloaded_file = download_file(pulp_unit_url)
     assert downloaded_file.response_obj.status == 200
 
-    # Add cached content to source repo so it has a repository version with content
-    monitor_task(maven_repo_api_client.add_cached_content(source_repo.pulp_href, {}).task)
+    # Content is automatically added to the repository via pull-through caching
     source_repo = maven_repo_api_client.read(source_repo.pulp_href)
     assert source_repo.latest_version_href.endswith("/versions/1/")
 
@@ -81,8 +80,7 @@ def test_modify_remove_all_content_units(
     downloaded_file = download_file(pulp_unit_url)
     assert downloaded_file.response_obj.status == 200
 
-    # Add cached content to repo
-    monitor_task(maven_repo_api_client.add_cached_content(repo.pulp_href, {}).task)
+    # Content is automatically added via pull-through caching
     repo = maven_repo_api_client.read(repo.pulp_href)
     assert repo.latest_version_href.endswith("/versions/1/")
 
@@ -129,8 +127,7 @@ def test_modify_multiple_content_units(
         downloaded_file = download_file(pulp_unit_url)
         assert downloaded_file.response_obj.status == 200
 
-    # Add cached content to source repo
-    monitor_task(maven_repo_api_client.add_cached_content(source_repo.pulp_href, {}).task)
+    # Content is automatically added via pull-through caching
     source_repo = maven_repo_api_client.read(source_repo.pulp_href)
 
     content = maven_artifact_api_client.list(repository_version=source_repo.latest_version_href)
