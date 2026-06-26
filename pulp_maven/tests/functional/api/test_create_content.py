@@ -1,5 +1,6 @@
 import hashlib
 import os
+import uuid
 from urllib.parse import urljoin
 
 import pytest
@@ -50,6 +51,7 @@ def test_upload_maven_artifacts(
     distribution = maven_distribution_factory(repository=repo.pulp_href)
     base_url = distribution_base_url(distribution.base_url)
 
+    run_id = str(uuid.uuid4())
     created_hrefs = []
     artifact_data = {}
     for filename in FILENAMES:
@@ -57,7 +59,7 @@ def test_upload_maven_artifacts(
         artifact_data[filename] = artifact.sha256
         relative_path = f"{GROUP_PATH}/{filename}"
 
-        labels = {"vendor": "redhat"}
+        labels = {"run_id": run_id}
         base = filename.split(".md5")[0].split(".sha1")[0].split(".sha256")[0]
         if base.endswith(".jar"):
             labels["type"] = "jar"
@@ -80,7 +82,7 @@ def test_upload_maven_artifacts(
         assert content.artifact_id == EXPECTED_ARTIFACT_ID
         assert content.version == EXPECTED_VERSION
         assert content.filename == filename
-        assert content.pulp_labels["vendor"] == "redhat"
+        assert content.pulp_labels["run_id"] == run_id
         assert content.pulp_labels["type"] in ("jar", "pom", "sbom", "provenance", "vex")
         created_hrefs.append(content.pulp_href)
 
@@ -96,25 +98,25 @@ def test_upload_maven_artifacts(
         actual_sha256 = hashlib.sha256(downloaded.body).hexdigest()
         assert actual_sha256 == expected_sha256
 
-    # Filter by single label
-    results = maven_artifact_api_client.list(pulp_label_select="vendor=redhat")
+    # Filter by unique run_id label
+    results = maven_artifact_api_client.list(pulp_label_select=f"run_id={run_id}")
     assert results.count == 20
 
-    # Filter by AND: vendor=redhat AND type=jar
-    results = maven_artifact_api_client.list(pulp_label_select="vendor=redhat,type=jar")
+    # Filter by AND: run_id AND type=jar
+    results = maven_artifact_api_client.list(pulp_label_select=f"run_id={run_id},type=jar")
     assert results.count == 4  # .jar, .jar.md5, .jar.sha1, .jar.sha256
 
     # Filter by label key existence
-    results = maven_artifact_api_client.list(pulp_label_select="type")
+    results = maven_artifact_api_client.list(pulp_label_select=f"run_id={run_id},type")
     assert results.count == 20
 
     # Filter by contains
-    results = maven_artifact_api_client.list(pulp_label_select="type~sb")
+    results = maven_artifact_api_client.list(pulp_label_select=f"run_id={run_id},type~sb")
     assert results.count == 4  # cyclonedx.json + its checksum files
 
     # Filter by OR using q filter
     results = maven_artifact_api_client.list(
-        q='pulp_label_select="type=jar" OR pulp_label_select="type=pom"'
+        q=f'pulp_label_select="run_id={run_id},type=jar" OR pulp_label_select="run_id={run_id},type=pom"'
     )
     assert results.count == 8  # 4 jar files + 4 pom files
 
