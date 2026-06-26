@@ -2,6 +2,11 @@
 
 Pulp Maven can be used to cache packages from Maven Central or any other repository on the internet.
 
+When a client requests content from a distribution with a remote configured, Pulp streams the
+content from the remote and automatically saves it into the associated repository. This means
+cached content is immediately available and protected from orphan cleanup without any additional
+steps.
+
 The commands below use the `pulp-cli-maven` package available on PyPI.
 
 ## 1. Create a new Maven Remote
@@ -62,7 +67,8 @@ The commands below use the `pulp-cli-maven` package available on PyPI.
 
 ## 2. Create a Maven Repository
 
-The repository will be used to store content initially cached by pulpcore-content.
+The repository will be used to store cached content. When content is fetched via pull-through
+caching, it is automatically added to this repository.
 
 You don't have to specify a remote on it, but adding one now will enable you to not have to specify one each time you want to add newly cached content to a repository.
 
@@ -93,10 +99,9 @@ You don't have to specify a remote on it, but adding one now will enable you to 
 Create a distribution with a defined remote.
 
 Doing this ensures that when clients request content from that distribution, `pulpcore-content` will stream the content from the remote to the client.
-During that process the content is saved into Pulp.
+During that process the content is automatically saved into Pulp and added to the repository, creating a new repository version for each new content unit.
 
 Adding the repository to the distribution will enable users to browse the HTML listing pages served by `pulpcore-content`.
-However, the content will not be displayed there until the cached content is added to the repository as described in the next steps.
 
 === "run"
 
@@ -140,24 +145,7 @@ In your `~/.m2/settings.xml` add Pulp as a mirror of Maven Central. The URL come
 </settings>
 ```
 
-## 5. Add cached content to a repository
-
-Whenever content is initially cached by Pulp in the above scenario, it does not belong to any
-repository. Pulp considers such content an orphan after 24 hours. At that point an Orphan Cleanup
-task would remove the cached content from Pulp. Adding the cached content to a repository would
-prevent the cleanup from happening. The following command will create a new repository version
-by adding all Maven content that was created from a remote associated with the repository since
-the last repository version was created.
-
-=== "run"
-
-    ```bash
-    pulp maven repository add-cached-content --name maven-central
-    ```
-
-=== "output"
-
-    ```
-    Started background task /pulp/api/v3/tasks/2459cf00-3c67-4dd7-bff2-35acd72f584f/
-    Done.
-    ```
+Once your Maven client resolves packages through this mirror, Pulp automatically caches each
+artifact and adds it to the repository. The cached content will be available in subsequent
+requests even if the upstream repository becomes unreachable, and the remote can later be removed
+from the distribution without losing access to cached content.
