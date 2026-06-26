@@ -56,10 +56,25 @@ def test_create_maven_artifacts(
         artifact = random_artifact_factory(size=64)
         artifact_data[filename] = artifact.sha256
         relative_path = f"{GROUP_PATH}/{filename}"
+
+        labels = {"vendor": "redhat"}
+        base = filename.split(".md5")[0].split(".sha1")[0].split(".sha256")[0]
+        if base.endswith(".jar"):
+            labels["type"] = "jar"
+        elif base.endswith(".pom"):
+            labels["type"] = "pom"
+        elif "cyclonedx" in base:
+            labels["type"] = "sbom"
+        elif "provenance" in base:
+            labels["type"] = "provenance"
+        elif "vex" in base:
+            labels["type"] = "vex"
+
         content = maven_artifact_api_client.create(
             artifact=artifact.pulp_href,
             relative_path=relative_path,
             repository=repo.pulp_href,
+            pulp_labels=labels,
         )
         assert content.pulp_href is not None
         content = maven_artifact_api_client.read(content.pulp_href)
@@ -67,6 +82,8 @@ def test_create_maven_artifacts(
         assert content.artifact_id == EXPECTED_ARTIFACT_ID
         assert content.version == EXPECTED_VERSION
         assert content.filename == filename
+        assert content.pulp_labels["vendor"] == "redhat"
+        assert content.pulp_labels["type"] in ("jar", "pom", "sbom", "provenance", "vex")
 
     for filename, expected_sha256 in artifact_data.items():
         unit_url = urljoin(base_url, f"{GROUP_PATH}/{filename}")
@@ -74,6 +91,28 @@ def test_create_maven_artifacts(
         assert downloaded.response_obj.status == 200
         actual_sha256 = hashlib.sha256(downloaded.body).hexdigest()
         assert actual_sha256 == expected_sha256
+
+    # Filter by single label (AND with one term)
+    results = maven_artifact_api_client.list(pulp_label_select="vendor=redhat")
+    assert results.count == 20
+
+    # Filter by AND: vendor=redhat AND type=jar (jar + its checksum files)
+    results = maven_artifact_api_client.list(pulp_label_select="vendor=redhat,type=jar")
+    assert results.count == 4  # .jar, .jar.md5, .jar.sha1, .jar.sha256
+
+    # Filter by label key existence
+    results = maven_artifact_api_client.list(pulp_label_select="type")
+    assert results.count == 20
+
+    # Filter by contains
+    results = maven_artifact_api_client.list(pulp_label_select="type~sb")
+    assert results.count == 4  # cyclonedx.json + its checksum files
+
+    # Filter by OR using q filter: type=jar OR type=pom
+    results = maven_artifact_api_client.list(
+        q='pulp_label_select="type=jar" OR pulp_label_select="type=pom"'
+    )
+    assert results.count == 8  # 4 jar files + 4 pom files
 
 
 @pytest.mark.parallel

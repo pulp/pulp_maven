@@ -1,3 +1,4 @@
+import json
 from gettext import gettext as _
 
 from rest_framework import serializers
@@ -40,6 +41,17 @@ class MavenArtifactSerializer(platform.SingleArtifactContentSerializer):
     filename = serializers.CharField(help_text=_("Filename of the artifact."), read_only=True)
 
     def __init__(self, *args, **kwargs):
+        if (
+            "data" in kwargs
+            and "pulp_labels" in kwargs["data"]
+            and isinstance(kwargs["data"]["pulp_labels"], str)
+        ):
+            try:
+                data = kwargs["data"].copy()
+                data["pulp_labels"] = json.loads(data["pulp_labels"])
+                kwargs["data"] = data
+            except (json.JSONDecodeError, AttributeError):
+                pass
         super().__init__(*args, **kwargs)
         if "artifact" in self.fields:
             self.fields["artifact"].required = False
