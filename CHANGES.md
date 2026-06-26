@@ -8,6 +8,33 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.16.0 (2026-06-26) {: #0.16.0 }
+
+#### Features {: #0.16.0-feature }
+
+- Added an async upload API for Maven artifacts that supports file uploads, labels, and
+  optionally adding content to a repository in a single request.
+
+---
+
+## 0.15.0 (2026-06-26) {: #0.15.0 }
+
+#### Features {: #0.15.0-feature }
+
+- The Maven Artifact create API now accepts file uploads in addition to artifact hrefs.
+  [#348](https://github.com/pulp/pulp_maven/issues/348)
+
+---
+
+## 0.14.0 (2026-06-25) {: #0.14.0 }
+
+#### Features {: #0.14.0-feature }
+
+- Added ``ModifyRepositoryActionMixin`` to ``MavenRepositoryViewSet``, enabling the standard
+  ``/modify/`` endpoint for adding and removing content units between Maven repositories.
+
+---
+
 ## 0.13.0 (2026-06-12) {: #0.13.0 }
 
 No significant changes.
