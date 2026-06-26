@@ -69,9 +69,9 @@ class MavenArtifactUploadSerializer(MavenArtifactSerializer):
             and isinstance(kwargs["data"]["pulp_labels"], str)
         ):
             try:
-                data = kwargs["data"].copy()
-                data["pulp_labels"] = json.loads(data["pulp_labels"])
-                kwargs["data"] = data
+                kwargs["data"]._mutable = True
+                kwargs["data"]["pulp_labels"] = json.loads(kwargs["data"]["pulp_labels"])
+                kwargs["data"]._mutable = False
             except (json.JSONDecodeError, AttributeError):
                 pass
         super().__init__(*args, **kwargs)
