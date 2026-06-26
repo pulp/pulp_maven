@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.15.0 (2026-06-26) {: #0.15.0 }
+
+#### Features {: #0.15.0-feature }
+
+- The Maven Artifact create API now accepts file uploads in addition to artifact hrefs.
+  [#348](https://github.com/pulp/pulp_maven/issues/348)
+
+---
+
 ## 0.13.0 (2026-06-12) {: #0.13.0 }
 
 No significant changes.
