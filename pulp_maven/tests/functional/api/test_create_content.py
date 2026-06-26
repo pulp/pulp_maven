@@ -1,11 +1,8 @@
 import hashlib
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urljoin
 
 import pytest
-
-from pulpcore.client.pulp_maven.exceptions import ApiException
 
 from pulp_maven.tests.functional.utils import download_file
 
@@ -39,34 +36,58 @@ EXPECTED_VERSION = "4.3.0-redhat-1"
 
 
 @pytest.mark.parallel
-def test_create_maven_artifacts(
+def test_upload_maven_artifacts(
     maven_artifact_api_client,
+    maven_repo_api_client,
     random_artifact_factory,
     maven_repo_factory,
     maven_distribution_factory,
     distribution_base_url,
+    monitor_task,
 ):
-    """Test creating MavenArtifact content units and downloading them."""
+    """Test uploading MavenArtifact content units synchronously with labels."""
     repo = maven_repo_factory()
     distribution = maven_distribution_factory(repository=repo.pulp_href)
     base_url = distribution_base_url(distribution.base_url)
 
+    created_hrefs = []
     artifact_data = {}
     for filename in FILENAMES:
         artifact = random_artifact_factory(size=64)
         artifact_data[filename] = artifact.sha256
         relative_path = f"{GROUP_PATH}/{filename}"
-        content = maven_artifact_api_client.create(
+
+        labels = {"vendor": "redhat"}
+        base = filename.split(".md5")[0].split(".sha1")[0].split(".sha256")[0]
+        if base.endswith(".jar"):
+            labels["type"] = "jar"
+        elif base.endswith(".pom"):
+            labels["type"] = "pom"
+        elif "cyclonedx" in base:
+            labels["type"] = "sbom"
+        elif "provenance" in base:
+            labels["type"] = "provenance"
+        elif "vex" in base:
+            labels["type"] = "vex"
+
+        content = maven_artifact_api_client.upload(
             artifact=artifact.pulp_href,
             relative_path=relative_path,
-            repository=repo.pulp_href,
+            pulp_labels=labels,
         )
         assert content.pulp_href is not None
-        content = maven_artifact_api_client.read(content.pulp_href)
         assert content.group_id == EXPECTED_GROUP_ID
         assert content.artifact_id == EXPECTED_ARTIFACT_ID
         assert content.version == EXPECTED_VERSION
         assert content.filename == filename
+        assert content.pulp_labels["vendor"] == "redhat"
+        assert content.pulp_labels["type"] in ("jar", "pom", "sbom", "provenance", "vex")
+        created_hrefs.append(content.pulp_href)
+
+    # Add all content to repository in one request
+    monitor_task(
+        maven_repo_api_client.modify(repo.pulp_href, {"add_content_units": created_hrefs}).task
+    )
 
     for filename, expected_sha256 in artifact_data.items():
         unit_url = urljoin(base_url, f"{GROUP_PATH}/{filename}")
@@ -75,84 +96,80 @@ def test_create_maven_artifacts(
         actual_sha256 = hashlib.sha256(downloaded.body).hexdigest()
         assert actual_sha256 == expected_sha256
 
+    # Filter by single label
+    results = maven_artifact_api_client.list(pulp_label_select="vendor=redhat")
+    assert results.count == 20
+
+    # Filter by AND: vendor=redhat AND type=jar
+    results = maven_artifact_api_client.list(pulp_label_select="vendor=redhat,type=jar")
+    assert results.count == 4  # .jar, .jar.md5, .jar.sha1, .jar.sha256
+
+    # Filter by label key existence
+    results = maven_artifact_api_client.list(pulp_label_select="type")
+    assert results.count == 20
+
+    # Filter by contains
+    results = maven_artifact_api_client.list(pulp_label_select="type~sb")
+    assert results.count == 4  # cyclonedx.json + its checksum files
+
+    # Filter by OR using q filter
+    results = maven_artifact_api_client.list(
+        q='pulp_label_select="type=jar" OR pulp_label_select="type=pom"'
+    )
+    assert results.count == 8  # 4 jar files + 4 pom files
+
 
 @pytest.mark.parallel
-def test_create_maven_artifact_rhlw_version(
+def test_upload_maven_artifact_rhlw_version(
     maven_artifact_api_client,
     random_artifact_factory,
-    maven_repo_factory,
-    maven_distribution_factory,
-    distribution_base_url,
 ):
-    """Test creating a MavenArtifact with an rhlw-style version string."""
-    repo = maven_repo_factory()
-    distribution = maven_distribution_factory(repository=repo.pulp_href)
-    base_url = distribution_base_url(distribution.base_url)
-
+    """Test uploading a MavenArtifact with an rhlw-style version string."""
     filename = "spring-security-core-5.3.17.rhlw-00001.jar"
     relative_path = (
         "org/springframework/security/spring-security-core/5.3.17.rhlw-00001/" + filename
     )
     artifact = random_artifact_factory(size=64)
-    content = maven_artifact_api_client.create(
+    content = maven_artifact_api_client.upload(
         artifact=artifact.pulp_href,
         relative_path=relative_path,
-        repository=repo.pulp_href,
     )
-    content = maven_artifact_api_client.read(content.pulp_href)
     assert content.group_id == "org.springframework.security"
     assert content.artifact_id == "spring-security-core"
     assert content.version == "5.3.17.rhlw-00001"
     assert content.filename == filename
 
-    unit_url = urljoin(base_url, relative_path)
-    downloaded = download_file(unit_url)
-    assert downloaded.response_obj.status == 200
-    assert hashlib.sha256(downloaded.body).hexdigest() == artifact.sha256
-
 
 @pytest.mark.parallel
-def test_create_maven_artifact_text_prefixed_version(
+def test_upload_maven_artifact_text_prefixed_version(
     maven_artifact_api_client,
     random_artifact_factory,
-    maven_repo_factory,
-    maven_distribution_factory,
-    distribution_base_url,
 ):
-    """Test creating a MavenArtifact with a text-prefixed version string."""
-    repo = maven_repo_factory()
-    distribution = maven_distribution_factory(repository=repo.pulp_href)
-    base_url = distribution_base_url(distribution.base_url)
-
+    """Test uploading a MavenArtifact with a text-prefixed version string."""
     filename = "my-lib-final-1.2.3.jar"
     relative_path = f"com/example/my-lib/final-1.2.3/{filename}"
     artifact = random_artifact_factory(size=64)
-    content = maven_artifact_api_client.create(
+    content = maven_artifact_api_client.upload(
         artifact=artifact.pulp_href,
         relative_path=relative_path,
-        repository=repo.pulp_href,
     )
-    content = maven_artifact_api_client.read(content.pulp_href)
     assert content.group_id == "com.example"
     assert content.artifact_id == "my-lib"
     assert content.version == "final-1.2.3"
     assert content.filename == filename
 
-    unit_url = urljoin(base_url, relative_path)
-    downloaded = download_file(unit_url)
-    assert downloaded.response_obj.status == 200
-    assert hashlib.sha256(downloaded.body).hexdigest() == artifact.sha256
-
 
 @pytest.mark.parallel
-def test_create_maven_artifact_with_file_upload(
+def test_upload_maven_artifact_with_file(
     maven_artifact_api_client,
+    maven_repo_api_client,
     maven_repo_factory,
     maven_distribution_factory,
     distribution_base_url,
+    monitor_task,
     tmp_path,
 ):
-    """Test creating a MavenArtifact by uploading a file directly."""
+    """Test uploading a MavenArtifact with a file directly."""
     repo = maven_repo_factory()
     distribution = maven_distribution_factory(repository=repo.pulp_href)
     base_url = distribution_base_url(distribution.base_url)
@@ -165,16 +182,21 @@ def test_create_maven_artifact_with_file_upload(
     temp_file.write_bytes(file_content)
     expected_sha256 = hashlib.sha256(file_content).hexdigest()
 
-    content = maven_artifact_api_client.create(
+    content = maven_artifact_api_client.upload(
         relative_path=relative_path,
         file=str(temp_file),
-        repository=repo.pulp_href,
     )
-    content = maven_artifact_api_client.read(content.pulp_href)
     assert content.group_id == "com.example"
     assert content.artifact_id == "my-library"
     assert content.version == "1.0.0"
     assert content.filename == filename
+
+    # Add to repo and verify download
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href, {"add_content_units": [content.pulp_href]}
+        ).task
+    )
 
     unit_url = urljoin(base_url, relative_path)
     downloaded = download_file(unit_url)
@@ -183,47 +205,40 @@ def test_create_maven_artifact_with_file_upload(
 
 
 @pytest.mark.parallel
-def test_create_maven_artifacts_parallel(
+def test_async_create_maven_artifact(
     maven_artifact_api_client,
+    maven_repo_api_client,
     random_artifact_factory,
     maven_repo_factory,
-    pulp_settings,
+    maven_distribution_factory,
+    distribution_base_url,
+    monitor_task,
 ):
-    """Test parallel uploads to the same repo succeed or return 429 (never 500)."""
-    if pulp_settings.WORKER_TYPE != "redis":
-        pytest.skip("Immediate tasks require WORKER_TYPE=redis")
-
+    """Test creating a MavenArtifact via the async create endpoint with a repository."""
     repo = maven_repo_factory()
+    distribution = maven_distribution_factory(repository=repo.pulp_href)
+    base_url = distribution_base_url(distribution.base_url)
 
-    artifacts = []
-    for i in range(20):
-        artifact = random_artifact_factory(size=64)
-        filename = f"lib-{i}-1.0.0.jar"
-        relative_path = f"com/example/lib-{i}/1.0.0/{filename}"
-        artifacts.append((artifact.pulp_href, relative_path))
+    artifact = random_artifact_factory(size=64)
+    filename = "async-lib-1.0.0.jar"
+    relative_path = f"com/example/async-lib/1.0.0/{filename}"
 
-    throttled_count = 0
-    success_count = 0
+    task = maven_artifact_api_client.create(
+        artifact=artifact.pulp_href,
+        relative_path=relative_path,
+        repository=repo.pulp_href,
+    )
+    result = monitor_task(task.task)
+    content_hrefs = [r for r in result.created_resources if "content/maven/artifact" in r]
+    assert len(content_hrefs) == 1
 
-    def upload(artifact_href, relative_path):
-        return maven_artifact_api_client.create(
-            artifact=artifact_href,
-            relative_path=relative_path,
-            repository=repo.pulp_href,
-        )
+    content = maven_artifact_api_client.read(content_hrefs[0])
+    assert content.group_id == "com.example"
+    assert content.artifact_id == "async-lib"
+    assert content.version == "1.0.0"
+    assert content.filename == filename
 
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        futures = {executor.submit(upload, href, path): (href, path) for href, path in artifacts}
-        for future in as_completed(futures):
-            try:
-                future.result()
-                success_count += 1
-            except ApiException as e:
-                if e.status == 429:
-                    throttled_count += 1
-                else:
-                    raise
-
-    assert success_count + throttled_count == 20
-    assert success_count >= 1
-    assert throttled_count >= 1, "Expected at least one 429 response from parallel uploads"
+    unit_url = urljoin(base_url, relative_path)
+    downloaded = download_file(unit_url)
+    assert downloaded.response_obj.status == 200
+    assert hashlib.sha256(downloaded.body).hexdigest() == artifact.sha256
