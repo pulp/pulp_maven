@@ -8,6 +8,14 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.16.1 (2026-06-26) {: #0.16.1 }
+
+#### Bugfixes {: #0.16.1-bugfix }
+
+- Fixed a crash when uploading a file with labels via the synchronous upload endpoint.
+
+---
+
 ## 0.16.0 (2026-06-26) {: #0.16.0 }
 
 #### Features {: #0.16.0-feature }
