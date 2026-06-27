@@ -50,9 +50,9 @@ def test_mvn_deploy_workflow(
         msg = e.stdout.decode() + e.stderr.decode()
         pytest.fail(msg)
 
-    # Assert that the latest version is 12
+    # Assert that the latest version is 8 (fewer versions after metadata XML parsing fix)
     repo = maven_repo_api_client.read(repo.pulp_href)
-    assert repo.latest_version_href.endswith("/versions/12/")
+    assert repo.latest_version_href.endswith("/versions/8/")
 
     # Assert that you can get the metadata for the simple-project
     pulp_unit_url = urljoin(
