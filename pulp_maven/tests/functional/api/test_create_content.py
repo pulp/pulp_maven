@@ -270,3 +270,22 @@ def test_upload_duplicate_maven_artifact(
     )
 
     assert second.pulp_href == first.pulp_href
+
+
+@pytest.mark.parallel
+def test_upload_maven_metadata(
+    maven_metadata_api_client,
+    random_artifact_factory,
+):
+    """Test uploading maven-metadata.xml via the metadata endpoint."""
+    artifact = random_artifact_factory(size=64)
+    relative_path = "com/fasterxml/jackson/module/jackson-module-parameter-names/maven-metadata.xml"
+    content = maven_metadata_api_client.upload(
+        artifact=artifact.pulp_href,
+        relative_path=relative_path,
+    )
+    assert content.group_id == "com.fasterxml.jackson.module"
+    assert content.artifact_id == "jackson-module-parameter-names"
+    assert content.version is None
+    assert content.filename == "maven-metadata.xml"
+    assert content.sha256 == artifact.sha256
