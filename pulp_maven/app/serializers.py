@@ -37,6 +37,15 @@ class MavenArtifactSerializer(platform.SingleArtifactContentUploadSerializer):
     )
     filename = serializers.CharField(help_text=_("Filename of the artifact."), read_only=True)
 
+    def retrieve(self, validated_data):
+        return models.MavenArtifact.objects.filter(
+            group_id=validated_data["group_id"],
+            artifact_id=validated_data["artifact_id"],
+            version=validated_data["version"],
+            filename=validated_data["filename"],
+            pulp_domain=get_domain_pk(),
+        ).first()
+
     def create(self, validated_data):
         group_id, artifact_id, version, filename = (
             models.MavenArtifact.group_artifact_version_filename(validated_data["relative_path"])
