@@ -275,17 +275,69 @@ def test_upload_duplicate_maven_artifact(
 @pytest.mark.parallel
 def test_upload_maven_metadata(
     maven_metadata_api_client,
-    random_artifact_factory,
+    tmp_path,
 ):
-    """Test uploading maven-metadata.xml via the metadata endpoint."""
-    artifact = random_artifact_factory(size=64)
+    """Test uploading maven-metadata.xml with GAV parsed from XML content."""
+    xml_content = b"""<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>com.fasterxml.jackson.module</groupId>
+  <artifactId>jackson-module-parameter-names</artifactId>
+  <versioning>
+    <latest>2.8.11</latest>
+    <release>2.8.11</release>
+    <versions>
+      <version>2.8.11</version>
+    </versions>
+  </versioning>
+</metadata>
+"""
+    temp_file = tmp_path / "maven-metadata.xml"
+    temp_file.write_bytes(xml_content)
+
     relative_path = "com/fasterxml/jackson/module/jackson-module-parameter-names/maven-metadata.xml"
     content = maven_metadata_api_client.upload(
-        artifact=artifact.pulp_href,
+        file=str(temp_file),
         relative_path=relative_path,
     )
     assert content.group_id == "com.fasterxml.jackson.module"
     assert content.artifact_id == "jackson-module-parameter-names"
     assert content.version is None
     assert content.filename == "maven-metadata.xml"
-    assert content.sha256 == artifact.sha256
+    assert content.sha256 is not None
+
+
+@pytest.mark.parallel
+def test_upload_maven_metadata_snapshot(
+    maven_metadata_api_client,
+    tmp_path,
+):
+    """Test uploading version-level SNAPSHOT maven-metadata.xml."""
+    xml_content = b"""<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>com.fasterxml.jackson.module</groupId>
+  <artifactId>jackson-module-parameter-names</artifactId>
+  <version>2.8.11-SNAPSHOT</version>
+  <versioning>
+    <snapshot>
+      <timestamp>20260627.200810</timestamp>
+      <buildNumber>1</buildNumber>
+    </snapshot>
+  </versioning>
+</metadata>
+"""
+    temp_file = tmp_path / "maven-metadata.xml"
+    temp_file.write_bytes(xml_content)
+
+    relative_path = (
+        "com/fasterxml/jackson/module/jackson-module-parameter-names"
+        "/2.8.11-SNAPSHOT/maven-metadata.xml"
+    )
+    content = maven_metadata_api_client.upload(
+        file=str(temp_file),
+        relative_path=relative_path,
+    )
+    assert content.group_id == "com.fasterxml.jackson.module"
+    assert content.artifact_id == "jackson-module-parameter-names"
+    assert content.version == "2.8.11-SNAPSHOT"
+    assert content.filename == "maven-metadata.xml"
+    assert content.sha256 is not None

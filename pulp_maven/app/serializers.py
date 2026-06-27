@@ -1,6 +1,7 @@
 import json
 from gettext import gettext as _
 
+import defusedxml.ElementTree as ET
 from django.db import DatabaseError
 from rest_framework import serializers
 
@@ -128,14 +129,23 @@ class MavenMetadataSerializer(platform.SingleArtifactContentUploadSerializer):
         ).first()
 
     def create(self, validated_data):
-        group_id, artifact_id, version, filename = (
-            models.MavenMetadata.group_artifact_version_filename(validated_data["relative_path"])
+        artifact = validated_data["artifact"]
+        _, _, _, filename = models.MavenMetadata.group_artifact_version_filename(
+            validated_data["relative_path"]
         )
+
+        with artifact.file.open("rb") as f:
+            tree = ET.parse(f)
+            root = tree.getroot()
+            group_id = root.findtext("groupId", "")
+            artifact_id = root.findtext("artifactId", "")
+            version = root.findtext("version")
+
         validated_data["group_id"] = group_id
         validated_data["artifact_id"] = artifact_id
         validated_data["version"] = version
         validated_data["filename"] = filename
-        validated_data["sha256"] = validated_data["artifact"].sha256
+        validated_data["sha256"] = artifact.sha256
         return super().create(validated_data)
 
     class Meta:
