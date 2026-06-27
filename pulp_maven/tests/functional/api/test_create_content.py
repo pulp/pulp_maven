@@ -244,3 +244,29 @@ def test_async_create_maven_artifact(
     downloaded = download_file(unit_url)
     assert downloaded.response_obj.status == 200
     assert hashlib.sha256(downloaded.body).hexdigest() == artifact.sha256
+
+
+@pytest.mark.parallel
+def test_upload_duplicate_maven_artifact(
+    maven_artifact_api_client,
+    random_artifact_factory,
+):
+    """Test that uploading a duplicate Maven artifact returns the existing content unit."""
+    artifact = random_artifact_factory(size=64)
+    filename = "duplicate-test-1.0.0.jar"
+    relative_path = f"com/example/duplicate-test/1.0.0/{filename}"
+
+    first = maven_artifact_api_client.upload(
+        artifact=artifact.pulp_href,
+        relative_path=relative_path,
+    )
+    assert first.pulp_href is not None
+
+    # Upload again with same relative_path but different artifact content
+    artifact2 = random_artifact_factory(size=64)
+    second = maven_artifact_api_client.upload(
+        artifact=artifact2.pulp_href,
+        relative_path=relative_path,
+    )
+
+    assert second.pulp_href == first.pulp_href
