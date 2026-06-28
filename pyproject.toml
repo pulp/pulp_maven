@@ -24,6 +24,7 @@ classifiers=[
 requires-python = ">=3.11"
 dependencies = [
   "pulpcore>=3.108.0,<3.115",
+  "defusedxml>=0.7,<1.0",
 ]
 
 [project.urls]

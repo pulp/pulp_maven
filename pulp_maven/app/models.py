@@ -116,12 +116,19 @@ class MavenMetadata(MavenContentMixin, Content):
             relative_path (str): Relative path for the artifact in the Project
 
         """
+        import defusedxml.ElementTree as ET
+
         if path.isabs(relative_path):
             raise ValueError(_("Relative path can't start with '/'."))
 
-        group_id, artifact_id, version, f_name = MavenMetadata.group_artifact_version_filename(
-            relative_path
-        )
+        _, _, _, f_name = MavenMetadata.group_artifact_version_filename(relative_path)
+
+        with artifact.file.open("rb") as f:
+            tree = ET.parse(f)
+            root = tree.getroot()
+            group_id = root.findtext("groupId", "")
+            artifact_id = root.findtext("artifactId", "")
+            version = root.findtext("version")
 
         return MavenMetadata(
             group_id=group_id,
@@ -174,6 +181,7 @@ class MavenRepository(Repository):
     TYPE = "maven"
     CONTENT_TYPES = [MavenArtifact, MavenMetadata]
     REMOTE_TYPES = [MavenRemote]
+    PULL_THROUGH_SUPPORTED = True
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"

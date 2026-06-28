@@ -3,8 +3,6 @@
 import hashlib
 from urllib.parse import urljoin
 
-from aiohttp.client_exceptions import ClientResponseError
-
 from pulp_maven.tests.functional.utils import download_file
 
 
@@ -55,27 +53,49 @@ def test_download_content(
     content_response = maven_artifact_api_client.list(filename="custommatcher-1.0-javadoc.jar.sha1")
     assert content_response.count == 1
 
+    # Pull-through cached content is automatically added to the repository.
+    # The repository version should have incremented from 0 to 1.
+    repository = maven_repo_api_client.read(repository.pulp_href)
+    assert repository.latest_version_href.endswith("/versions/1/")
+
+    # Verify the content is in the repository version
+    repo_content = maven_artifact_api_client.list(repository_version=repository.latest_version_href)
+    assert repo_content.count >= 1
+
     # Remove the remote from the distribution
     monitor_task(
         maven_distro_api_client.partial_update(distribution.pulp_href, {"remote": None}).task
     )
 
-    # Assert that the maven artifact is no longer available
-    try:
-        download_file(pulp_unit_url)
-    except ClientResponseError as e:
-        assert e.status == 404
-
-    # Assert that the repository version is 0
-    assert repository.latest_version_href.endswith("/versions/0/")
-
-    # Add cached content to the repository
-    monitor_task(maven_repo_api_client.add_cached_content(repository.pulp_href, {}).task)
-
-    # Assert that the repository is at version 1
-    repository = maven_repo_api_client.read(repository.pulp_href)
-    assert repository.latest_version_href.endswith("/versions/1/")
-
-    # Assert that it is now once again available from the same distribution
+    # Content should still be available since it was automatically added to the repository
     downloaded_file = download_file(pulp_unit_url)
     assert downloaded_file.response_obj.status == 200
+
+
+def test_pullthrough_idempotent(
+    maven_distribution_factory,
+    maven_remote_factory,
+    maven_repo_factory,
+    maven_artifact_api_client,
+    maven_repo_api_client,
+    distribution_base_url,
+):
+    """Verify that requesting the same content twice does not create duplicate repo versions."""
+    remote = maven_remote_factory(url="https://repo1.maven.org/maven2/")
+    repository = maven_repo_factory(remote=remote.pulp_href)
+    distribution = maven_distribution_factory(
+        remote=remote.pulp_href, repository=repository.pulp_href
+    )
+
+    unit_path = "academy/alex/custommatcher/1.0/custommatcher-1.0-javadoc.jar.sha1"
+    pulp_unit_url = urljoin(distribution_base_url(distribution.base_url), unit_path)
+
+    # First request — content is fetched from remote and added to the repository
+    download_file(pulp_unit_url)
+    repository = maven_repo_api_client.read(repository.pulp_href)
+    first_version = repository.latest_version_href
+
+    # Second request — content already exists; no new version should be created
+    download_file(pulp_unit_url)
+    repository = maven_repo_api_client.read(repository.pulp_href)
+    assert repository.latest_version_href == first_version
