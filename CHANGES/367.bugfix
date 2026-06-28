@@ -1,2 +1,0 @@
-Fixed MavenMetadata GAV parsing to read groupId and artifactId from the XML content
-instead of the ambiguous relative path.
