@@ -350,6 +350,23 @@ def test_upload_maven_metadata_snapshot(
 
 
 @pytest.mark.parallel
+def test_upload_invalid_xml_metadata(
+    maven_artifact_api_client,
+    tmp_path,
+):
+    """Test that uploading invalid XML as maven-metadata.xml returns 400, not 500."""
+    temp_file = tmp_path / "maven-metadata.xml"
+    temp_file.write_text("not valid xml")
+
+    relative_path = "com/example/bad-xml/maven-metadata.xml"
+    from pulpcore.client.pulp_maven import ApiException
+
+    with pytest.raises(ApiException) as exc_info:
+        maven_artifact_api_client.upload(file=str(temp_file), relative_path=relative_path)
+    assert exc_info.value.status == 400
+
+
+@pytest.mark.parallel
 def test_upload_duplicate_maven_metadata(
     maven_artifact_api_client,
     tmp_path,

@@ -120,7 +120,10 @@ class MavenApiViewSet(APIView):
         artifact = self.receive_artifact(chunk)
 
         # Create content unit
-        content = MavenArtifact.init_from_artifact_and_relative_path(artifact, path)
+        try:
+            content = MavenArtifact.init_from_artifact_and_relative_path(artifact, path)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=400)
         try:
             content.save()
         except IntegrityError:

@@ -55,12 +55,17 @@ class MavenArtifactSerializer(platform.SingleArtifactContentUploadSerializer):
         _, _, _, filename = models.MavenArtifact.group_artifact_version_filename(relative_path)
 
         if filename == "maven-metadata.xml":
-            with artifact.file.open("rb") as f:
-                tree = ET.parse(f)
-                root = tree.getroot()
-                group_id = root.findtext("groupId", "")
-                artifact_id = root.findtext("artifactId", "")
-                version = root.findtext("version")
+            try:
+                with artifact.file.open("rb") as f:
+                    tree = ET.parse(f)
+                    root = tree.getroot()
+                    group_id = root.findtext("groupId", "")
+                    artifact_id = root.findtext("artifactId", "")
+                    version = root.findtext("version")
+            except ET.ParseError:
+                raise serializers.ValidationError(
+                    {"relative_path": "maven-metadata.xml could not be parsed as valid XML."}
+                )
         elif models.MavenArtifact.is_metadata(relative_path):
             parent_path = relative_path.rsplit(".", 1)[0]
             parent_ca = ContentArtifact.objects.filter(
