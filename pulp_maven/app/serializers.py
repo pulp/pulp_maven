@@ -129,17 +129,34 @@ class MavenMetadataSerializer(platform.SingleArtifactContentUploadSerializer):
         ).first()
 
     def create(self, validated_data):
-        artifact = validated_data["artifact"]
-        _, _, _, filename = models.MavenMetadata.group_artifact_version_filename(
-            validated_data["relative_path"]
-        )
+        from pulpcore.plugin.models import ContentArtifact
 
-        with artifact.file.open("rb") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-            group_id = root.findtext("groupId", "")
-            artifact_id = root.findtext("artifactId", "")
-            version = root.findtext("version")
+        artifact = validated_data["artifact"]
+        relative_path = validated_data["relative_path"]
+        _, _, _, filename = models.MavenMetadata.group_artifact_version_filename(relative_path)
+
+        if filename == "maven-metadata.xml":
+            with artifact.file.open("rb") as f:
+                tree = ET.parse(f)
+                root = tree.getroot()
+                group_id = root.findtext("groupId", "")
+                artifact_id = root.findtext("artifactId", "")
+                version = root.findtext("version")
+        else:
+            parent_path = relative_path.rsplit(".", 1)[0]
+            parent_ca = ContentArtifact.objects.filter(
+                relative_path=parent_path,
+                content__pulp_domain=get_domain_pk(),
+            ).first()
+            if parent_ca:
+                parent = parent_ca.content.cast()
+                group_id = parent.group_id
+                artifact_id = parent.artifact_id
+                version = parent.version
+            else:
+                group_id, artifact_id, version, _ = (
+                    models.MavenMetadata.group_artifact_version_filename(relative_path)
+                )
 
         validated_data["group_id"] = group_id
         validated_data["artifact_id"] = artifact_id

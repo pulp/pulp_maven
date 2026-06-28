@@ -118,17 +118,35 @@ class MavenMetadata(MavenContentMixin, Content):
         """
         import defusedxml.ElementTree as ET
 
+        from pulpcore.plugin.models import ContentArtifact
+
         if path.isabs(relative_path):
             raise ValueError(_("Relative path can't start with '/'."))
 
         _, _, _, f_name = MavenMetadata.group_artifact_version_filename(relative_path)
 
-        with artifact.file.open("rb") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-            group_id = root.findtext("groupId", "")
-            artifact_id = root.findtext("artifactId", "")
-            version = root.findtext("version")
+        if f_name == "maven-metadata.xml":
+            with artifact.file.open("rb") as f:
+                tree = ET.parse(f)
+                root = tree.getroot()
+                group_id = root.findtext("groupId", "")
+                artifact_id = root.findtext("artifactId", "")
+                version = root.findtext("version")
+        else:
+            parent_path = relative_path.rsplit(".", 1)[0]
+            parent_ca = ContentArtifact.objects.filter(
+                relative_path=parent_path,
+                content__pulp_domain=get_domain_pk(),
+            ).first()
+            if parent_ca:
+                parent = parent_ca.content.cast()
+                group_id = parent.group_id
+                artifact_id = parent.artifact_id
+                version = parent.version
+            else:
+                group_id, artifact_id, version, _ = MavenMetadata.group_artifact_version_filename(
+                    relative_path
+                )
 
         return MavenMetadata(
             group_id=group_id,

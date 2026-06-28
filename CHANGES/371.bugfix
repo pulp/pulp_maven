@@ -1,0 +1,2 @@
+Fixed checksum sidecar files for maven-metadata.xml failing XML parsing. Checksum files
+now inherit GAV fields from their parent maven-metadata.xml content unit.
