@@ -5,6 +5,7 @@ import pytest
 from pulpcore.client.pulp_maven import (
     ApiClient,
     ContentArtifactApi,
+    ContentMetadataApi,
     DistributionsMavenApi,
     RemotesMavenApi,
     RepositoriesMavenApi,
@@ -22,6 +23,11 @@ def maven_client(_api_client_set, bindings_cfg):
 @pytest.fixture(scope="session")
 def maven_artifact_api_client(maven_client):
     return ContentArtifactApi(maven_client)
+
+
+@pytest.fixture(scope="session")
+def maven_metadata_api_client(maven_client):
+    return ContentMetadataApi(maven_client)
 
 
 @pytest.fixture(scope="session")

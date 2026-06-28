@@ -37,6 +37,15 @@ class MavenArtifactSerializer(platform.SingleArtifactContentUploadSerializer):
     )
     filename = serializers.CharField(help_text=_("Filename of the artifact."), read_only=True)
 
+    def retrieve(self, validated_data):
+        return models.MavenArtifact.objects.filter(
+            group_id=validated_data["group_id"],
+            artifact_id=validated_data["artifact_id"],
+            version=validated_data["version"],
+            filename=validated_data["filename"],
+            pulp_domain=get_domain_pk(),
+        ).first()
+
     def create(self, validated_data):
         group_id, artifact_id, version, filename = (
             models.MavenArtifact.group_artifact_version_filename(validated_data["relative_path"])
@@ -93,6 +102,89 @@ class MavenArtifactUploadSerializer(MavenArtifactSerializer):
 
     class Meta(MavenArtifactSerializer.Meta):
         ref_name = "MavenArtifactUploadSerializer"
+
+
+class MavenMetadataSerializer(platform.SingleArtifactContentUploadSerializer):
+    """
+    A Serializer for MavenMetadata.
+    """
+
+    group_id = serializers.CharField(
+        help_text=_("Group Id of the metadata's package."), read_only=True
+    )
+    artifact_id = serializers.CharField(
+        help_text=_("Artifact Id of the metadata's package."), read_only=True
+    )
+    version = serializers.CharField(
+        help_text=_("Version of the metadata's package."), read_only=True, allow_null=True
+    )
+    filename = serializers.CharField(help_text=_("Filename of the metadata."), read_only=True)
+    sha256 = serializers.CharField(help_text=_("SHA256 digest of the metadata."), read_only=True)
+
+    def retrieve(self, validated_data):
+        return models.MavenMetadata.objects.filter(
+            sha256=validated_data["sha256"],
+            pulp_domain=get_domain_pk(),
+        ).first()
+
+    def create(self, validated_data):
+        group_id, artifact_id, version, filename = (
+            models.MavenMetadata.group_artifact_version_filename(validated_data["relative_path"])
+        )
+        validated_data["group_id"] = group_id
+        validated_data["artifact_id"] = artifact_id
+        validated_data["version"] = version
+        validated_data["filename"] = filename
+        validated_data["sha256"] = validated_data["artifact"].sha256
+        return super().create(validated_data)
+
+    class Meta:
+        fields = platform.SingleArtifactContentUploadSerializer.Meta.fields + (
+            "group_id",
+            "artifact_id",
+            "version",
+            "filename",
+            "sha256",
+        )
+        model = models.MavenMetadata
+
+
+class MavenMetadataUploadSerializer(MavenMetadataSerializer):
+    """
+    Serializer for synchronous Maven Metadata uploads.
+    """
+
+    def __init__(self, *args, **kwargs):
+        if (
+            "data" in kwargs
+            and "pulp_labels" in kwargs["data"]
+            and isinstance(kwargs["data"]["pulp_labels"], str)
+        ):
+            try:
+                kwargs["data"]._mutable = True
+                kwargs["data"]["pulp_labels"] = json.loads(kwargs["data"]["pulp_labels"])
+                kwargs["data"]._mutable = False
+            except (json.JSONDecodeError, AttributeError):
+                pass
+        super().__init__(*args, **kwargs)
+
+    def validate(self, data):
+        data = super().validate(data)
+        if "file" in data:
+            file = data.pop("file")
+            try:
+                artifact = Artifact.objects.get(
+                    sha256=file.hashers["sha256"].hexdigest(), pulp_domain=get_domain_pk()
+                )
+                artifact.touch()
+            except (Artifact.DoesNotExist, DatabaseError):
+                artifact = Artifact.init_and_validate(file)
+                artifact.save()
+            data["artifact"] = artifact
+        return data
+
+    class Meta(MavenMetadataSerializer.Meta):
+        ref_name = "MavenMetadataUploadSerializer"
 
 
 class MavenRemoteSerializer(platform.RemoteSerializer):
