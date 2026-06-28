@@ -145,10 +145,13 @@ class MavenApiViewSet(APIView):
         artifact = self.receive_artifact(chunk)
 
         # Create a MavenArtifact or MavenMetadata
-        if is_metadata:
-            content = MavenMetadata.init_from_artifact_and_relative_path(artifact, path)
-        else:
-            content = MavenArtifact.init_from_artifact_and_relative_path(artifact, path)
+        try:
+            if is_metadata:
+                content = MavenMetadata.init_from_artifact_and_relative_path(artifact, path)
+            else:
+                content = MavenArtifact.init_from_artifact_and_relative_path(artifact, path)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=400)
         try:
             content.save()
         except IntegrityError:
