@@ -8,6 +8,22 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.18.0 (2026-06-28) {: #0.18.0 }
+
+#### Features {: #0.18.0-feature }
+
+- Pull-through cached content is now automatically added to the repository when streamed from a
+  remote, aligning with the behavior of other Pulp plugins (Python, RPM).
+  [#344](https://github.com/pulp/pulp_maven/issues/344)
+
+#### Bugfixes {: #0.18.0-bugfix }
+
+- Fixed MavenMetadata GAV parsing to read groupId and artifactId from the XML content
+  instead of the ambiguous relative path.
+  [#367](https://github.com/pulp/pulp_maven/issues/367)
+
+---
+
 ## 0.16.1 (2026-06-26) {: #0.16.1 }
 
 #### Bugfixes {: #0.16.1-bugfix }
