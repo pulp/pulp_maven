@@ -50,7 +50,7 @@ def test_mvn_deploy_workflow(
         msg = e.stdout.decode() + e.stderr.decode()
         pytest.fail(msg)
 
-    # Assert that the latest version is 12 (6 artifacts + 6 metadata including checksums)
+    # Assert that the latest version is 12 (one per PUT in mvn deploy)
     repo = maven_repo_api_client.read(repo.pulp_href)
     assert repo.latest_version_href.endswith("/versions/12/")
 

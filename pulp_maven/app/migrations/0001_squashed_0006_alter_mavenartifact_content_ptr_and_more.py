@@ -2,7 +2,6 @@
 
 from django.db import migrations, models
 import django.db.models.deletion
-import pulp_maven.app.models
 
 
 class Migration(migrations.Migration):
@@ -94,7 +93,7 @@ class Migration(migrations.Migration):
                 "default_related_name": "%(app_label)s_%(model_name)s",
                 "unique_together": {("group_id", "artifact_id", "version", "filename", "sha256")},
             },
-            bases=(pulp_maven.app.models.MavenContentMixin, "core.content"),
+            bases=("core.content",),
         ),
         migrations.CreateModel(
             name="MavenRemote",

@@ -1,0 +1,2 @@
+Merged MavenMetadata into MavenArtifact model. The separate metadata content API
+has been removed. All Maven content is now managed through the artifact API.

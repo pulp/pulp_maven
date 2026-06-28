@@ -251,7 +251,7 @@ def test_upload_duplicate_maven_artifact(
     maven_artifact_api_client,
     random_artifact_factory,
 ):
-    """Test that uploading a duplicate Maven artifact returns the existing content unit."""
+    """Test that uploading the same file returns the existing content unit."""
     artifact = random_artifact_factory(size=64)
     filename = "duplicate-test-1.0.0.jar"
     relative_path = f"com/example/duplicate-test/1.0.0/{filename}"
@@ -262,19 +262,25 @@ def test_upload_duplicate_maven_artifact(
     )
     assert first.pulp_href is not None
 
-    # Upload again with same relative_path but different artifact content
-    artifact2 = random_artifact_factory(size=64)
+    # Upload same artifact again → same content unit (same sha256)
     second = maven_artifact_api_client.upload(
+        artifact=artifact.pulp_href,
+        relative_path=relative_path,
+    )
+    assert second.pulp_href == first.pulp_href
+
+    # Upload different artifact to same path → new content unit (different sha256)
+    artifact2 = random_artifact_factory(size=64)
+    third = maven_artifact_api_client.upload(
         artifact=artifact2.pulp_href,
         relative_path=relative_path,
     )
-
-    assert second.pulp_href == first.pulp_href
+    assert third.pulp_href != first.pulp_href
 
 
 @pytest.mark.parallel
 def test_upload_maven_metadata(
-    maven_metadata_api_client,
+    maven_artifact_api_client,
     tmp_path,
 ):
     """Test uploading maven-metadata.xml with GAV parsed from XML content."""
@@ -295,7 +301,7 @@ def test_upload_maven_metadata(
     temp_file.write_bytes(xml_content)
 
     relative_path = "com/fasterxml/jackson/module/jackson-module-parameter-names/maven-metadata.xml"
-    content = maven_metadata_api_client.upload(
+    content = maven_artifact_api_client.upload(
         file=str(temp_file),
         relative_path=relative_path,
     )
@@ -308,7 +314,7 @@ def test_upload_maven_metadata(
 
 @pytest.mark.parallel
 def test_upload_maven_metadata_snapshot(
-    maven_metadata_api_client,
+    maven_artifact_api_client,
     tmp_path,
 ):
     """Test uploading version-level SNAPSHOT maven-metadata.xml."""
@@ -332,7 +338,7 @@ def test_upload_maven_metadata_snapshot(
         "com/fasterxml/jackson/module/jackson-module-parameter-names"
         "/2.8.11-SNAPSHOT/maven-metadata.xml"
     )
-    content = maven_metadata_api_client.upload(
+    content = maven_artifact_api_client.upload(
         file=str(temp_file),
         relative_path=relative_path,
     )
@@ -344,8 +350,30 @@ def test_upload_maven_metadata_snapshot(
 
 
 @pytest.mark.parallel
+def test_upload_duplicate_maven_metadata(
+    maven_artifact_api_client,
+    tmp_path,
+):
+    """Test that uploading the exact same maven-metadata.xml returns the existing content unit."""
+    xml_content = b'<?xml version="1.0"?>\n<metadata><groupId>com.example</groupId><artifactId>dup-meta-test</artifactId><versioning><latest>1.0.0</latest><versions><version>1.0.0</version></versions></versioning></metadata>'
+
+    relative_path = "com/example/dup-meta-test/maven-metadata.xml"
+
+    f1 = tmp_path / "maven-metadata-1.xml"
+    f1.write_bytes(xml_content)
+    first = maven_artifact_api_client.upload(file=str(f1), relative_path=relative_path)
+
+    # Upload identical content again
+    f2 = tmp_path / "maven-metadata-2.xml"
+    f2.write_bytes(xml_content)
+    second = maven_artifact_api_client.upload(file=str(f2), relative_path=relative_path)
+
+    assert second.pulp_href == first.pulp_href
+
+
+@pytest.mark.parallel
 def test_repo_key_fields_replace_duplicate_metadata(
-    maven_metadata_api_client,
+    maven_artifact_api_client,
     maven_repo_api_client,
     maven_repo_factory,
     monitor_task,
@@ -359,7 +387,7 @@ def test_repo_key_fields_replace_duplicate_metadata(
     xml1 = b'<?xml version="1.0"?>\n<metadata><groupId>com.example</groupId><artifactId>dedup-test</artifactId><versioning><latest>1.0.0</latest><versions><version>1.0.0</version></versions></versioning></metadata>'
     f1 = tmp_path / "maven-metadata-v1.xml"
     f1.write_bytes(xml1)
-    content1 = maven_metadata_api_client.upload(file=str(f1), relative_path=relative_path)
+    content1 = maven_artifact_api_client.upload(file=str(f1), relative_path=relative_path)
 
     monitor_task(
         maven_repo_api_client.modify(
@@ -373,7 +401,7 @@ def test_repo_key_fields_replace_duplicate_metadata(
     xml2 = b'<?xml version="1.0"?>\n<metadata><groupId>com.example</groupId><artifactId>dedup-test</artifactId><versioning><latest>2.0.0</latest><versions><version>1.0.0</version><version>2.0.0</version></versions></versioning></metadata>'
     f2 = tmp_path / "maven-metadata-v2.xml"
     f2.write_bytes(xml2)
-    content2 = maven_metadata_api_client.upload(file=str(f2), relative_path=relative_path)
+    content2 = maven_artifact_api_client.upload(file=str(f2), relative_path=relative_path)
 
     # Different sha256 → different content unit
     assert content2.pulp_href != content1.pulp_href
@@ -388,6 +416,6 @@ def test_repo_key_fields_replace_duplicate_metadata(
     assert repo.latest_version_href.endswith("/versions/2/")
 
     # Verify only 1 metadata in repo (the new one replaced the old)
-    results = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
+    results = maven_artifact_api_client.list(repository_version=repo.latest_version_href)
     assert results.count == 1
     assert results.results[0].pulp_href == content2.pulp_href

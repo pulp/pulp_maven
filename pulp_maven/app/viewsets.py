@@ -17,19 +17,11 @@ from pulpcore.plugin.viewsets import (
     SingleArtifactContentUploadViewSet,
 )
 
-from pulp_maven.app.models import (
-    MavenArtifact,
-    MavenDistribution,
-    MavenMetadata,
-    MavenRemote,
-    MavenRepository,
-)
+from pulp_maven.app.models import MavenArtifact, MavenDistribution, MavenRemote, MavenRepository
 from pulp_maven.app.serializers import (
     MavenArtifactSerializer,
     MavenArtifactUploadSerializer,
     MavenDistributionSerializer,
-    MavenMetadataSerializer,
-    MavenMetadataUploadSerializer,
     MavenRemoteSerializer,
     MavenRepositorySerializer,
     RepositoryAddCachedContentSerializer,
@@ -75,44 +67,6 @@ class MavenArtifactViewSet(SingleArtifactContentUploadViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
-class MavenMetadataFilter(ContentFilter):
-    """
-    FilterSet for MavenMetadata.
-    """
-
-    class Meta:
-        model = MavenMetadata
-        fields = ["group_id", "artifact_id", "version", "filename"]
-
-
-class MavenMetadataViewSet(SingleArtifactContentUploadViewSet):
-    """
-    A ViewSet for MavenMetadata.
-    """
-
-    endpoint_name = "metadata"
-    queryset = MavenMetadata.objects.all()
-    serializer_class = MavenMetadataSerializer
-    filterset_class = MavenMetadataFilter
-
-    @extend_schema(
-        description="Synchronously upload a Maven metadata file.",
-        request=MavenMetadataUploadSerializer,
-        responses={201: MavenMetadataSerializer},
-        summary="Upload a Maven metadata file synchronously.",
-    )
-    @action(detail=False, methods=["post"], serializer_class=MavenMetadataUploadSerializer)
-    def upload(self, request):
-        """Create a Maven metadata content unit synchronously."""
-        serializer = self.get_serializer(data=request.data)
-        with transaction.atomic():
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-
-
 class MavenRemoteViewSet(RemoteViewSet):
     """
     A ViewSet for MavenRemote.
@@ -125,7 +79,7 @@ class MavenRemoteViewSet(RemoteViewSet):
 
 class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin):
     """
-    A ViewSet for MavenRemote.
+    A ViewSet for MavenRepository.
     """
 
     endpoint_name = "maven"
@@ -140,10 +94,8 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin):
     @action(detail=True, methods=["post"], serializer_class=RepositoryAddCachedContentSerializer)
     def add_cached_content(self, request, pk):
         """
-        Add to the repository any MavenArtifact and MavenMetadata that was cached using the
+        Add to the repository any MavenArtifact that was cached using the
         remote since the last repository version was created.
-
-        The ``repository`` field has to be provided.
         """
         serializer = RepositoryAddCachedContentSerializer(
             data=request.data, context={"request": request, "repository_pk": pk}

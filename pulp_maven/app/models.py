@@ -3,27 +3,57 @@ from gettext import gettext as _
 from logging import getLogger
 from os import path
 
+import defusedxml.ElementTree as ET
 from django.db import models
 
-from pulpcore.plugin.models import Content, Distribution, Remote, Repository
+from pulpcore.plugin.models import Content, ContentArtifact, Distribution, Remote, Repository
 from pulpcore.plugin.repo_version_utils import remove_duplicates
 from pulpcore.plugin.util import get_domain_pk
 
 logger = getLogger(__name__)
 
+_METADATA_PATTERN = re.compile(
+    r"\.(xml|xml\.sha1|xml\.md5|xml\.sha224|xml\.sha256|xml\.sha384|xml\.sha512)$"
+)
 
-class MavenContentMixin:
+
+class MavenArtifact(Content):
+    """
+    The Maven content type.
+
+    Represents any file in a Maven repository: JARs, POMs, signatures,
+    maven-metadata.xml, and their checksum sidecars.
+    """
+
+    TYPE = "artifact"
+    repo_key_fields = ("group_id", "artifact_id", "version", "filename")
+
+    _pulp_domain = models.ForeignKey("core.Domain", default=get_domain_pk, on_delete=models.PROTECT)
+    group_id = models.CharField(max_length=255, null=False)
+    artifact_id = models.CharField(max_length=255, null=False)
+    version = models.CharField(max_length=255, null=True)
+    filename = models.CharField(max_length=255, null=False)
+    sha256 = models.CharField(max_length=64, null=False)
+
+    class Meta:
+        default_related_name = "%(app_label)s_%(model_name)s"
+        unique_together = (
+            "group_id",
+            "artifact_id",
+            "version",
+            "filename",
+            "sha256",
+            "_pulp_domain",
+        )
+
     @staticmethod
     def group_artifact_version_filename(relative_path):
         """
-        Converts a relative path into a tuple of group_id, artifact_id, and version.
+        Parse a Maven repository relative path into (group_id, artifact_id, version, filename).
 
-        Args:
-            relative_path (str): Relative path for the artifact in the repository.
-
-        Returns:
-            Tuple (group_id, artifact_id, version, filename)
-
+        The version is determined by a regex heuristic. If the directory above the filename
+        looks like a version string (contains at least one digit), it is treated as the version.
+        Otherwise, it is treated as the artifact_id and version is set to None.
         """
         sub_path, filename = path.split(relative_path)
         sub_path, version = path.split(sub_path)
@@ -38,95 +68,24 @@ class MavenContentMixin:
 
         return group_id, artifact_id, version, filename
 
-
-class MavenArtifact(MavenContentMixin, Content):
-    """
-    The Maven artifact content type.
-
-    This content type represents a single file in a Maven repository.
-    """
-
-    TYPE = "artifact"
-    repo_key_fields = ("group_id", "artifact_id", "version", "filename")
-
-    _pulp_domain = models.ForeignKey("core.Domain", default=get_domain_pk, on_delete=models.PROTECT)
-    group_id = models.CharField(max_length=255, null=False)
-    artifact_id = models.CharField(max_length=255, null=False)
-    version = models.CharField(max_length=255, null=False)
-    filename = models.CharField(max_length=255, null=False)
-
-    class Meta:
-        default_related_name = "%(app_label)s_%(model_name)s"
-        unique_together = ("group_id", "artifact_id", "version", "filename", "_pulp_domain")
+    @staticmethod
+    def is_metadata(relative_path):
+        """Return True if the relative_path is for a maven-metadata.xml or its checksum."""
+        return bool(_METADATA_PATTERN.search(relative_path))
 
     @staticmethod
     def init_from_artifact_and_relative_path(artifact, relative_path):
         """
-        Returns an instance of MavenArtifact for this artifact.
+        Return a MavenArtifact instance with fields populated from the artifact and path.
 
-        Args:
-            artifact (:class:`~pulpcore.plugin.models.Artifact`): An instance of an Artifact
-            relative_path (str): Relative path for the artifact in the Project
-
+        For maven-metadata.xml files, groupId and artifactId are parsed from the XML content.
+        For checksum sidecars (.xml.sha1, etc.), GAV is inherited from the parent metadata.
+        For all other files, GAV is parsed from the relative_path.
         """
         if path.isabs(relative_path):
             raise ValueError(_("Relative path can't start with '/'."))
 
-        group_id, artifact_id, version, f_name = MavenArtifact.group_artifact_version_filename(
-            relative_path
-        )
-
-        return MavenArtifact(
-            group_id=group_id, artifact_id=artifact_id, version=version, filename=f_name
-        )
-
-
-class MavenMetadata(MavenContentMixin, Content):
-    """
-    The Maven Metadata content type.
-
-    This content type represents a pom file or a pom.<checksum_type> file in a Maven repository.
-    """
-
-    TYPE = "metadata"
-    repo_key_fields = ("group_id", "artifact_id", "version", "filename")
-
-    _pulp_domain = models.ForeignKey("core.Domain", default=get_domain_pk, on_delete=models.PROTECT)
-    group_id = models.CharField(max_length=255, null=False)
-    artifact_id = models.CharField(max_length=255, null=False)
-    version = models.CharField(max_length=255, null=True)
-    filename = models.CharField(max_length=255, null=False)
-    sha256 = models.CharField(max_length=64, null=False, unique=True, db_index=True)
-
-    class Meta:
-        default_related_name = "%(app_label)s_%(model_name)s"
-        unique_together = (
-            "group_id",
-            "artifact_id",
-            "version",
-            "filename",
-            "sha256",
-            "_pulp_domain",
-        )
-
-    @staticmethod
-    def init_from_artifact_and_relative_path(artifact, relative_path):
-        """
-        Returns an instance of MavenMetadata for this artifact.
-
-        Args:
-            artifact (:class:`~pulpcore.plugin.models.Artifact`): An instance of an Artifact
-            relative_path (str): Relative path for the artifact in the Project
-
-        """
-        import defusedxml.ElementTree as ET
-
-        from pulpcore.plugin.models import ContentArtifact
-
-        if path.isabs(relative_path):
-            raise ValueError(_("Relative path can't start with '/'."))
-
-        _, _, _, f_name = MavenMetadata.group_artifact_version_filename(relative_path)
+        _, _, _, f_name = MavenArtifact.group_artifact_version_filename(relative_path)
 
         if f_name == "maven-metadata.xml":
             with artifact.file.open("rb") as f:
@@ -135,7 +94,7 @@ class MavenMetadata(MavenContentMixin, Content):
                 group_id = root.findtext("groupId", "")
                 artifact_id = root.findtext("artifactId", "")
                 version = root.findtext("version")
-        else:
+        elif MavenArtifact.is_metadata(relative_path):
             parent_path = relative_path.rsplit(".", 1)[0]
             parent_ca = ContentArtifact.objects.filter(
                 relative_path=parent_path,
@@ -147,11 +106,15 @@ class MavenMetadata(MavenContentMixin, Content):
                 artifact_id = parent.artifact_id
                 version = parent.version
             else:
-                group_id, artifact_id, version, _ = MavenMetadata.group_artifact_version_filename(
+                group_id, artifact_id, version, _ = MavenArtifact.group_artifact_version_filename(
                     relative_path
                 )
+        else:
+            group_id, artifact_id, version, _ = MavenArtifact.group_artifact_version_filename(
+                relative_path
+            )
 
-        return MavenMetadata(
+        return MavenArtifact(
             group_id=group_id,
             artifact_id=artifact_id,
             version=version,
@@ -162,21 +125,14 @@ class MavenMetadata(MavenContentMixin, Content):
 
 class MavenRemote(Remote):
     """
-    A Remote for MavenArtifact.
-
-    Define any additional fields for your new importer if needed.
+    A Remote for Maven content.
     """
 
     TYPE = "maven"
 
     @staticmethod
     def get_remote_artifact_content_type(relative_path=None):
-        """
-        Returns content type that is found at the relative_path.
-        """
-        pattern = r"\.(xml|xml\.sha1|xml\.md5|xml\.sha224|xml\.sha256|xml\.sha384|xml\.sha512)$"
-        if re.search(pattern, relative_path):
-            return MavenMetadata
+        """Return MavenArtifact for all Maven content."""
         return MavenArtifact
 
     class Meta:
@@ -200,7 +156,7 @@ class MavenRepository(Repository):
     """
 
     TYPE = "maven"
-    CONTENT_TYPES = [MavenArtifact, MavenMetadata]
+    CONTENT_TYPES = [MavenArtifact]
     REMOTE_TYPES = [MavenRemote]
     PULL_THROUGH_SUPPORTED = True
 

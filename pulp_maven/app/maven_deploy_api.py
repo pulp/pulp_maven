@@ -1,5 +1,4 @@
 import hashlib
-import re
 from tempfile import NamedTemporaryFile
 
 from django.conf import settings
@@ -17,7 +16,6 @@ from pulpcore.plugin.util import get_domain
 from pulp_maven.app.models import (
     MavenArtifact,
     MavenDistribution,
-    MavenMetadata,
     MavenRepository,
 )
 from pulp_maven.app.tasks import aadd_and_remove
@@ -97,71 +95,43 @@ class MavenApiViewSet(APIView):
             raise Http404
         return repository, distribution
 
-    @staticmethod
-    def is_metadata(path):
-        is_metadata = False
-        pattern = r"\.(xml|xml\.sha1|xml\.md5|xml\.sha224|xml\.sha256|xml\.sha384|xml\.sha512)$"
-        if re.search(pattern, path):
-            is_metadata = True
-        return is_metadata
-
-    @staticmethod
-    def maven_artifact_attrs_from_path(path):
-        group_id, artifact_id, version, name = MavenArtifact.group_artifact_version_filename(path)
-
-        attrs = dict(
-            filename=name,
-            version=version,
-            artifact_id=artifact_id,
-            group_id=group_id,
-        )
-        return attrs
-
     def get(self, request, name, path):
         """
-        Responds to GET requests about manifests by reference
+        Responds to GET requests by redirecting to the content app.
         """
         repo, distro = self.get_repository_and_distributions(name)
 
-        kwargs = self.maven_artifact_attrs_from_path(path)
+        kwargs = dict(
+            zip(
+                ("group_id", "artifact_id", "version", "filename"),
+                MavenArtifact.group_artifact_version_filename(path),
+            )
+        )
         kwargs["pk__in"] = repo.latest_version().content
-
-        if self.is_metadata(path):
-            model = MavenMetadata
-        else:
-            model = MavenArtifact
-        content = get_object_or_404(model, **kwargs)
+        content = get_object_or_404(MavenArtifact, **kwargs)
         relative_path = content.contentartifact_set.get().relative_path
         return self.redirect_to_content_app(distro, relative_path, request)
 
     def put(self, request, name, path):
         repo, distro = self.get_repository_and_distributions(name)
 
-        # Determine if this is an artifact or metadata
-        is_metadata = self.is_metadata(path)
-
         # Save the uploaded file as an artifact
         chunk = request.META["wsgi.input"]
         artifact = self.receive_artifact(chunk)
 
-        # Create a MavenArtifact or MavenMetadata
-        if is_metadata:
-            content = MavenMetadata.init_from_artifact_and_relative_path(artifact, path)
-        else:
-            content = MavenArtifact.init_from_artifact_and_relative_path(artifact, path)
+        # Create content unit
+        content = MavenArtifact.init_from_artifact_and_relative_path(artifact, path)
         try:
             content.save()
         except IntegrityError:
-            if is_metadata:
-                content = MavenMetadata.objects.get(sha256=content.sha256, pulp_domain=get_domain())
-            else:
-                content = MavenArtifact.objects.get(
-                    group_id=content.group_id,
-                    artifact_id=content.artifact_id,
-                    version=content.version,
-                    filename=content.filename,
-                    pulp_domain=get_domain(),
-                )
+            content = MavenArtifact.objects.get(
+                group_id=content.group_id,
+                artifact_id=content.artifact_id,
+                version=content.version,
+                filename=content.filename,
+                sha256=content.sha256,
+                pulp_domain=get_domain(),
+            )
         ca = ContentArtifact(artifact=artifact, content=content, relative_path=path)
         try:
             ca.save()
@@ -170,19 +140,6 @@ class MavenApiViewSet(APIView):
             if not ca.artifact:
                 ca.artifact = artifact
                 ca.save()
-
-        if is_metadata:
-            metadata_to_remove = MavenMetadata.objects.filter(
-                pk__in=repo.latest_version().content.all(),
-                group_id=content.group_id,
-                artifact_id=content.artifact_id,
-                version=content.version,
-                filename=content.filename,
-                pulp_domain=get_domain(),
-            )
-            remove_content_units = [str(c[0]) for c in metadata_to_remove.values_list("pk")]
-        else:
-            remove_content_units = []
 
         add_content_units = [str(content.pk)]
 
@@ -194,7 +151,7 @@ class MavenApiViewSet(APIView):
             kwargs={
                 "repository_pk": str(repo.pk),
                 "add_content_units": add_content_units,
-                "remove_content_units": remove_content_units,
+                "remove_content_units": [],
             },
         )
 
