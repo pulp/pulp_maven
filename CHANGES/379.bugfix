@@ -1,2 +1,0 @@
-Uploading invalid XML as maven-metadata.xml now returns a 400 Bad Request
-instead of a 500 Internal Server Error.
