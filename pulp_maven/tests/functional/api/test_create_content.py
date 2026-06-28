@@ -341,3 +341,53 @@ def test_upload_maven_metadata_snapshot(
     assert content.version == "2.8.11-SNAPSHOT"
     assert content.filename == "maven-metadata.xml"
     assert content.sha256 is not None
+
+
+@pytest.mark.parallel
+def test_repo_key_fields_replace_duplicate_metadata(
+    maven_metadata_api_client,
+    maven_repo_api_client,
+    maven_repo_factory,
+    monitor_task,
+    tmp_path,
+):
+    """Test that metadata with same GAV+filename replaces old metadata in repository."""
+    repo = maven_repo_factory()
+    relative_path = "com/example/dedup-test/maven-metadata.xml"
+
+    # Upload first metadata
+    xml1 = b'<?xml version="1.0"?>\n<metadata><groupId>com.example</groupId><artifactId>dedup-test</artifactId><versioning><latest>1.0.0</latest><versions><version>1.0.0</version></versions></versioning></metadata>'
+    f1 = tmp_path / "maven-metadata-v1.xml"
+    f1.write_bytes(xml1)
+    content1 = maven_metadata_api_client.upload(file=str(f1), relative_path=relative_path)
+
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href, {"add_content_units": [content1.pulp_href]}
+        ).task
+    )
+    repo = maven_repo_api_client.read(repo.pulp_href)
+    assert repo.latest_version_href.endswith("/versions/1/")
+
+    # Upload second metadata with same GAV+filename but different content (new version added)
+    xml2 = b'<?xml version="1.0"?>\n<metadata><groupId>com.example</groupId><artifactId>dedup-test</artifactId><versioning><latest>2.0.0</latest><versions><version>1.0.0</version><version>2.0.0</version></versions></versioning></metadata>'
+    f2 = tmp_path / "maven-metadata-v2.xml"
+    f2.write_bytes(xml2)
+    content2 = maven_metadata_api_client.upload(file=str(f2), relative_path=relative_path)
+
+    # Different sha256 → different content unit
+    assert content2.pulp_href != content1.pulp_href
+
+    # Add to repo — repo_key_fields should replace the old metadata
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href, {"add_content_units": [content2.pulp_href]}
+        ).task
+    )
+    repo = maven_repo_api_client.read(repo.pulp_href)
+    assert repo.latest_version_href.endswith("/versions/2/")
+
+    # Verify only 1 metadata in repo (the new one replaced the old)
+    results = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
+    assert results.count == 1
+    assert results.results[0].pulp_href == content2.pulp_href

@@ -6,6 +6,7 @@ from os import path
 from django.db import models
 
 from pulpcore.plugin.models import Content, Distribution, Remote, Repository
+from pulpcore.plugin.repo_version_utils import remove_duplicates
 from pulpcore.plugin.util import get_domain_pk
 
 logger = getLogger(__name__)
@@ -46,6 +47,7 @@ class MavenArtifact(MavenContentMixin, Content):
     """
 
     TYPE = "artifact"
+    repo_key_fields = ("group_id", "artifact_id", "version", "filename")
 
     _pulp_domain = models.ForeignKey("core.Domain", default=get_domain_pk, on_delete=models.PROTECT)
     group_id = models.CharField(max_length=255, null=False)
@@ -87,6 +89,7 @@ class MavenMetadata(MavenContentMixin, Content):
     """
 
     TYPE = "metadata"
+    repo_key_fields = ("group_id", "artifact_id", "version", "filename")
 
     _pulp_domain = models.ForeignKey("core.Domain", default=get_domain_pk, on_delete=models.PROTECT)
     group_id = models.CharField(max_length=255, null=False)
@@ -200,6 +203,10 @@ class MavenRepository(Repository):
     CONTENT_TYPES = [MavenArtifact, MavenMetadata]
     REMOTE_TYPES = [MavenRemote]
     PULL_THROUGH_SUPPORTED = True
+
+    def finalize_new_version(self, new_version):
+        """Remove duplicate content when new content with same repo_key_fields is added."""
+        remove_duplicates(new_version)
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
