@@ -7,6 +7,7 @@ from pulpcore.client.pulp_maven import (
     ContentArtifactApi,
     ContentMetadataApi,
     DistributionsMavenApi,
+    PublicationsMavenApi,
     RemotesMavenApi,
     RepositoriesMavenApi,
 )
@@ -38,6 +39,11 @@ def maven_distro_api_client(maven_client):
 @pytest.fixture(scope="session")
 def maven_repo_api_client(maven_client):
     return RepositoriesMavenApi(maven_client)
+
+
+@pytest.fixture(scope="session")
+def maven_publication_api_client(maven_client):
+    return PublicationsMavenApi(maven_client)
 
 
 @pytest.fixture(scope="session")

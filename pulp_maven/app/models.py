@@ -5,7 +5,7 @@ from os import path
 
 from django.db import models
 
-from pulpcore.plugin.models import Content, Distribution, Remote, Repository
+from pulpcore.plugin.models import Content, Distribution, Publication, Remote, Repository
 from pulpcore.plugin.repo_version_utils import remove_duplicates
 from pulpcore.plugin.util import get_domain_pk
 
@@ -186,6 +186,19 @@ class MavenRemote(Remote):
         default_related_name = "%(app_label)s_%(model_name)s"
 
 
+class MavenPublication(Publication):
+    """
+    Publication for 'maven' content.
+
+    Generates maven-metadata.xml and checksum files for all artifacts in a repository version.
+    """
+
+    TYPE = "maven"
+
+    class Meta:
+        default_related_name = "%(app_label)s_%(model_name)s"
+
+
 class MavenDistribution(Distribution):
     """
     Distribution for 'maven' content.
@@ -206,6 +219,15 @@ class MavenRepository(Repository):
     CONTENT_TYPES = [MavenArtifact, MavenMetadata]
     REMOTE_TYPES = [MavenRemote]
     PULL_THROUGH_SUPPORTED = True
+
+    autopublish = models.BooleanField(default=False)
+
+    def on_new_version(self, version):
+        super().on_new_version(version)
+        if self.autopublish:
+            from pulp_maven.app.tasks import publish
+
+            publish(repository_version_pk=str(version.pk))
 
     def finalize_new_version(self, new_version):
         """Remove duplicate content when new content with same repo_key_fields is added."""
