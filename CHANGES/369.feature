@@ -1,0 +1,1 @@
+Added MavenPublication model that auto-generates maven-metadata.xml and its checksum files (.md5, .sha1, .sha256) for all artifacts in a repository version. Added autopublish option to MavenRepository.

@@ -6,7 +6,7 @@ from django.db import DatabaseError
 from rest_framework import serializers
 
 from pulpcore.plugin import serializers as platform
-from pulpcore.plugin.models import Artifact
+from pulpcore.plugin.models import Artifact, Publication
 from pulpcore.plugin.util import get_domain_pk
 
 from . import models
@@ -17,8 +17,17 @@ class MavenRepositorySerializer(platform.RepositorySerializer):
     Serializer for Maven Repositories.
     """
 
+    autopublish = serializers.BooleanField(
+        help_text=_(
+            "Whether to automatically create publications for new repository versions, "
+            "and update any distributions pointing to this repository."
+        ),
+        default=False,
+        required=False,
+    )
+
     class Meta:
-        fields = platform.RepositorySerializer.Meta.fields
+        fields = platform.RepositorySerializer.Meta.fields + ("autopublish",)
         model = models.MavenRepository
 
 
@@ -238,6 +247,16 @@ class MavenRemoteSerializer(platform.RemoteSerializer):
         model = models.MavenRemote
 
 
+class MavenPublicationSerializer(platform.PublicationSerializer):
+    """
+    Serializer for Maven Publications.
+    """
+
+    class Meta:
+        fields = platform.PublicationSerializer.Meta.fields
+        model = models.MavenPublication
+
+
 class MavenDistributionSerializer(platform.DistributionSerializer):
     """
     Serializer for Maven Distributions.
@@ -250,9 +269,16 @@ class MavenDistributionSerializer(platform.DistributionSerializer):
         view_name="remotes-maven/maven-detail",
         allow_null=True,
     )
+    publication = platform.DetailRelatedField(
+        required=False,
+        help_text=_("Publication to be served"),
+        view_name_pattern=r"publications(-.*/.*)?-detail",
+        queryset=Publication.objects.exclude(complete=False),
+        allow_null=True,
+    )
 
     class Meta:
-        fields = platform.DistributionSerializer.Meta.fields + ("remote",)
+        fields = platform.DistributionSerializer.Meta.fields + ("remote", "publication")
         model = models.MavenDistribution
 
 
