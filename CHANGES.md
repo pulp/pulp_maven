@@ -8,6 +8,25 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.19.0 (2026-06-28) {: #0.19.0 }
+
+#### Features {: #0.19.0-feature }
+
+- Added repo_key_fields to MavenArtifact and MavenMetadata so that duplicate content is
+  automatically replaced when new content with the same GAV and filename is added to a repository.
+  [#375](https://github.com/pulp/pulp_maven/issues/375)
+
+#### Bugfixes {: #0.19.0-bugfix }
+
+- Fixed checksum sidecar files for maven-metadata.xml failing XML parsing. Checksum files
+  now inherit GAV fields from their parent maven-metadata.xml content unit.
+  [#371](https://github.com/pulp/pulp_maven/issues/371)
+- Uploading invalid XML as maven-metadata.xml now returns a 400 Bad Request
+  instead of a 500 Internal Server Error.
+  [#379](https://github.com/pulp/pulp_maven/issues/379)
+
+---
+
 ## 0.18.0 (2026-06-28) {: #0.18.0 }
 
 #### Features {: #0.18.0-feature }
