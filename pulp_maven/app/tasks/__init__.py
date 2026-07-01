@@ -27,6 +27,22 @@ async def aadd_and_remove(*args, **kwargs):
     return await sync_to_async(add_and_remove)(*args, **kwargs)
 
 
+def _add_and_remove_skip_metadata(*args, **kwargs):
+    """Wrapper around add_and_remove that skips metadata generation."""
+    from pulp_maven.app.models import _pull_through_ctx
+
+    _pull_through_ctx.active = True
+    try:
+        return add_and_remove(*args, **kwargs)
+    finally:
+        _pull_through_ctx.active = False
+
+
+async def pull_through_aadd_and_remove(*args, **kwargs):
+    """Async add_and_remove that skips metadata generation for pull-through content."""
+    return await sync_to_async(_add_and_remove_skip_metadata)(*args, **kwargs)
+
+
 def add_cached_content_to_repository(repository_pk=None, remote_pk=None):
     """
     Create a new repository version by adding content that was cached by pulpcore-content when
