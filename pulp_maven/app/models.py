@@ -1,4 +1,5 @@
 import re
+import threading
 from gettext import gettext as _
 from logging import getLogger
 from os import path
@@ -10,6 +11,11 @@ from pulpcore.plugin.repo_version_utils import remove_duplicates
 from pulpcore.plugin.util import get_domain_pk
 
 logger = getLogger(__name__)
+
+# Thread-local used to skip metadata generation during pull-through caching.
+# Pull-through tasks run asynchronously from the content app; any extra work in
+# finalize_new_version delays version creation and races with subsequent reads.
+_pull_through_ctx = threading.local()
 
 
 class MavenContentMixin:
@@ -229,9 +235,192 @@ class MavenRepository(Repository):
 
             publish(repository_version_pk=str(version.pk))
 
+    def pull_through_add_content(self, content_artifact):
+        """Use a task that skips metadata generation for pull-through content."""
+        from pulpcore.plugin.models import RepositoryContent
+
+        cpk = content_artifact.content_id
+        already_present = RepositoryContent.objects.filter(
+            content__pk=cpk, repository=self, version_removed__isnull=True
+        )
+        if not cpk or already_present.exists():
+            return None
+
+        from pulpcore.plugin.tasking import dispatch
+
+        from pulp_maven.app.tasks import pull_through_aadd_and_remove
+
+        body = {
+            "repository_pk": self.pk,
+            "add_content_units": [cpk],
+            "remove_content_units": [],
+        }
+        return dispatch(
+            pull_through_aadd_and_remove,
+            kwargs=body,
+            exclusive_resources=[self],
+            immediate=True,
+        )
+
+    async def async_pull_through_add_content(self, content_artifact):
+        """Use a task that skips metadata generation for pull-through content."""
+        from pulpcore.plugin.models import RepositoryContent
+
+        cpk = content_artifact.content_id
+        already_present = RepositoryContent.objects.filter(
+            content__pk=cpk, repository=self, version_removed__isnull=True
+        )
+        if not cpk or await already_present.aexists():
+            return None
+
+        from pulpcore.plugin.tasking import adispatch
+
+        from pulp_maven.app.tasks import pull_through_aadd_and_remove
+
+        body = {
+            "repository_pk": self.pk,
+            "add_content_units": [cpk],
+            "remove_content_units": [],
+        }
+        return await adispatch(
+            pull_through_aadd_and_remove,
+            kwargs=body,
+            exclusive_resources=[self],
+            immediate=True,
+        )
+
     def finalize_new_version(self, new_version):
-        """Remove duplicate content when new content with same repo_key_fields is added."""
+        """Remove duplicates and generate metadata for affected artifacts."""
         remove_duplicates(new_version)
+        if not getattr(_pull_through_ctx, "active", False):
+            self._generate_metadata(new_version)
+
+    def _generate_metadata(self, new_version):
+        """Generate maven-metadata.xml and checksums for affected (group_id, artifact_id) pairs."""
+        # Lazy imports to avoid circular dependency (tasks imports models)
+        import hashlib
+        import tempfile
+        from collections import defaultdict
+
+        from django.db import IntegrityError, transaction
+        from django.db.models import Q
+
+        from pulpcore.plugin.models import Artifact, ContentArtifact
+
+        from pulp_maven.app.tasks import _build_maven_metadata_xml
+
+        def _save_artifact(content_bytes):
+            """Write bytes to a temp file and create a Pulp Artifact via init_and_validate."""
+            with tempfile.NamedTemporaryFile() as tmp:
+                tmp.write(content_bytes)
+                tmp.flush()
+                artifact = Artifact.init_and_validate(tmp.name)
+                artifact.pulp_domain = self.pulp_domain
+                try:
+                    with transaction.atomic():
+                        artifact.save()
+                except IntegrityError:
+                    artifact = Artifact.objects.get(
+                        sha256=artifact.sha256,
+                        pulp_domain=self.pulp_domain,
+                    )
+            return artifact
+
+        affected_pairs = set()
+        for qs in (
+            MavenArtifact.objects.filter(pk__in=new_version.added()),
+            MavenArtifact.objects.filter(pk__in=new_version.removed()),
+        ):
+            for vals in qs.values("group_id", "artifact_id").distinct().iterator():
+                affected_pairs.add((vals["group_id"], vals["artifact_id"]))
+
+        if not affected_pairs:
+            return
+
+        metadata_filenames = [
+            "maven-metadata.xml",
+            "maven-metadata.xml.md5",
+            "maven-metadata.xml.sha1",
+            "maven-metadata.xml.sha256",
+        ]
+
+        pairs_q = Q()
+        for group_id, artifact_id in affected_pairs:
+            pairs_q |= Q(group_id=group_id, artifact_id=artifact_id)
+
+        stale = MavenMetadata.objects.filter(
+            pk__in=new_version.content,
+            version=None,
+            filename__in=metadata_filenames,
+        ).filter(pairs_q)
+        new_version.remove_content(stale)
+
+        versions_by_pair = defaultdict(set)
+        for row in (
+            MavenArtifact.objects.filter(pk__in=new_version.content)
+            .filter(pairs_q)
+            .values("group_id", "artifact_id", "version")
+            .distinct()
+        ):
+            versions_by_pair[(row["group_id"], row["artifact_id"])].add(row["version"])
+
+        new_metadata_pks = []
+
+        for (group_id, artifact_id), version_set in versions_by_pair.items():
+            versions = sorted(version_set)
+            if not versions:
+                continue
+
+            metadata_xml = _build_maven_metadata_xml(group_id, artifact_id, versions)
+            group_path = group_id.replace(".", "/")
+            base_path = f"{group_path}/{artifact_id}/maven-metadata.xml"
+
+            xml_artifact = _save_artifact(metadata_xml)
+
+            files_to_create = [("maven-metadata.xml", base_path, xml_artifact)]
+            for ext, algo in [(".md5", "md5"), (".sha1", "sha1"), (".sha256", "sha256")]:
+                checksum_value = getattr(xml_artifact, algo)
+                if checksum_value is None:
+                    checksum_value = hashlib.new(algo, metadata_xml).hexdigest()
+                checksum_bytes = checksum_value.encode("utf-8")
+                checksum_artifact = _save_artifact(checksum_bytes)
+                files_to_create.append(
+                    (
+                        f"maven-metadata.xml{ext}",
+                        f"{base_path}{ext}",
+                        checksum_artifact,
+                    )
+                )
+
+            for filename, relative_path, artifact in files_to_create:
+                metadata_content = MavenMetadata(
+                    group_id=group_id,
+                    artifact_id=artifact_id,
+                    version=None,
+                    filename=filename,
+                    sha256=artifact.sha256,
+                    _pulp_domain=self.pulp_domain,
+                )
+                try:
+                    with transaction.atomic():
+                        metadata_content.save()
+                except IntegrityError:
+                    metadata_content = MavenMetadata.objects.get(sha256=artifact.sha256)
+
+                try:
+                    with transaction.atomic():
+                        ContentArtifact.objects.create(
+                            artifact=artifact,
+                            content=metadata_content,
+                            relative_path=relative_path,
+                        )
+                except IntegrityError:
+                    pass
+
+                new_metadata_pks.append(metadata_content.pk)
+
+        if new_metadata_pks:
+            new_version.add_content(MavenMetadata.objects.filter(pk__in=new_metadata_pks))
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
