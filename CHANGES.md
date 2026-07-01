@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.20.0 (2026-06-30) {: #0.20.0 }
+
+#### Features {: #0.20.0-feature }
+
+- Added MavenPublication model that auto-generates maven-metadata.xml and its checksum files (.md5, .sha1, .sha256) for all artifacts in a repository version. Added autopublish option to MavenRepository.
+  [#369](https://github.com/pulp/pulp_maven/issues/369)
+
+---
+
 ## 0.19.0 (2026-06-28) {: #0.19.0 }
 
 #### Features {: #0.19.0-feature }
