@@ -309,34 +309,14 @@ class MavenRepository(Repository):
 
     def _generate_metadata(self, new_version):
         """Generate maven-metadata.xml and checksums for affected (group_id, artifact_id) pairs."""
-        # Lazy imports to avoid circular dependency (tasks imports models)
-        import hashlib
-        import tempfile
         from collections import defaultdict
 
-        from django.db import IntegrityError, transaction
         from django.db.models import Q
 
-        from pulpcore.plugin.models import Artifact, ContentArtifact
-
-        from pulp_maven.app.tasks import _build_maven_metadata_xml
-
-        def _save_artifact(content_bytes):
-            """Write bytes to a temp file and create a Pulp Artifact via init_and_validate."""
-            with tempfile.NamedTemporaryFile() as tmp:
-                tmp.write(content_bytes)
-                tmp.flush()
-                artifact = Artifact.init_and_validate(tmp.name)
-                artifact.pulp_domain = self.pulp_domain
-                try:
-                    with transaction.atomic():
-                        artifact.save()
-                except IntegrityError:
-                    artifact = Artifact.objects.get(
-                        sha256=artifact.sha256,
-                        pulp_domain=self.pulp_domain,
-                    )
-            return artifact
+        from pulp_maven.app.tasks import (
+            METADATA_FILENAMES,
+            _create_metadata_content,
+        )
 
         affected_pairs = set()
         for qs in (
@@ -349,13 +329,6 @@ class MavenRepository(Repository):
         if not affected_pairs:
             return
 
-        metadata_filenames = [
-            "maven-metadata.xml",
-            "maven-metadata.xml.md5",
-            "maven-metadata.xml.sha1",
-            "maven-metadata.xml.sha256",
-        ]
-
         pairs_q = Q()
         for group_id, artifact_id in affected_pairs:
             pairs_q |= Q(group_id=group_id, artifact_id=artifact_id)
@@ -363,7 +336,7 @@ class MavenRepository(Repository):
         stale = MavenMetadata.objects.filter(
             pk__in=new_version.content,
             version=None,
-            filename__in=metadata_filenames,
+            filename__in=METADATA_FILENAMES,
         ).filter(pairs_q)
         new_version.remove_content(stale)
 
@@ -382,54 +355,9 @@ class MavenRepository(Repository):
             versions = sorted(version_set)
             if not versions:
                 continue
-
-            metadata_xml = _build_maven_metadata_xml(group_id, artifact_id, versions)
-            group_path = group_id.replace(".", "/")
-            base_path = f"{group_path}/{artifact_id}/maven-metadata.xml"
-
-            xml_artifact = _save_artifact(metadata_xml)
-
-            files_to_create = [("maven-metadata.xml", base_path, xml_artifact)]
-            for ext, algo in [(".md5", "md5"), (".sha1", "sha1"), (".sha256", "sha256")]:
-                checksum_value = getattr(xml_artifact, algo)
-                if checksum_value is None:
-                    checksum_value = hashlib.new(algo, metadata_xml).hexdigest()
-                checksum_bytes = checksum_value.encode("utf-8")
-                checksum_artifact = _save_artifact(checksum_bytes)
-                files_to_create.append(
-                    (
-                        f"maven-metadata.xml{ext}",
-                        f"{base_path}{ext}",
-                        checksum_artifact,
-                    )
-                )
-
-            for filename, relative_path, artifact in files_to_create:
-                metadata_content = MavenMetadata(
-                    group_id=group_id,
-                    artifact_id=artifact_id,
-                    version=None,
-                    filename=filename,
-                    sha256=artifact.sha256,
-                    _pulp_domain=self.pulp_domain,
-                )
-                try:
-                    with transaction.atomic():
-                        metadata_content.save()
-                except IntegrityError:
-                    metadata_content = MavenMetadata.objects.get(sha256=artifact.sha256)
-
-                try:
-                    with transaction.atomic():
-                        ContentArtifact.objects.create(
-                            artifact=artifact,
-                            content=metadata_content,
-                            relative_path=relative_path,
-                        )
-                except IntegrityError:
-                    pass
-
-                new_metadata_pks.append(metadata_content.pk)
+            new_metadata_pks.extend(
+                _create_metadata_content(group_id, artifact_id, versions, self.pulp_domain)
+            )
 
         if new_metadata_pks:
             new_version.add_content(MavenMetadata.objects.filter(pk__in=new_metadata_pks))
