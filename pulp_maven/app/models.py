@@ -1,4 +1,5 @@
 import re
+import threading
 from gettext import gettext as _
 from logging import getLogger
 from os import path
@@ -10,6 +11,11 @@ from pulpcore.plugin.repo_version_utils import remove_duplicates
 from pulpcore.plugin.util import get_domain_pk
 
 logger = getLogger(__name__)
+
+# Thread-local used to skip metadata generation during pull-through caching.
+# Pull-through tasks run asynchronously from the content app; any extra work in
+# finalize_new_version delays version creation and races with subsequent reads.
+_pull_through_ctx = threading.local()
 
 
 class MavenContentMixin:
@@ -229,9 +235,120 @@ class MavenRepository(Repository):
 
             publish(repository_version_pk=str(version.pk))
 
+    def pull_through_add_content(self, content_artifact):
+        """Use a task that skips metadata generation for pull-through content."""
+        from pulpcore.plugin.models import RepositoryContent
+
+        cpk = content_artifact.content_id
+        already_present = RepositoryContent.objects.filter(
+            content__pk=cpk, repository=self, version_removed__isnull=True
+        )
+        if not cpk or already_present.exists():
+            return None
+
+        from pulpcore.plugin.tasking import dispatch
+
+        from pulp_maven.app.tasks import pull_through_aadd_and_remove
+
+        body = {
+            "repository_pk": self.pk,
+            "add_content_units": [cpk],
+            "remove_content_units": [],
+        }
+        return dispatch(
+            pull_through_aadd_and_remove,
+            kwargs=body,
+            exclusive_resources=[self],
+            immediate=True,
+        )
+
+    async def async_pull_through_add_content(self, content_artifact):
+        """Use a task that skips metadata generation for pull-through content."""
+        from pulpcore.plugin.models import RepositoryContent
+
+        cpk = content_artifact.content_id
+        already_present = RepositoryContent.objects.filter(
+            content__pk=cpk, repository=self, version_removed__isnull=True
+        )
+        if not cpk or await already_present.aexists():
+            return None
+
+        from pulpcore.plugin.tasking import adispatch
+
+        from pulp_maven.app.tasks import pull_through_aadd_and_remove
+
+        body = {
+            "repository_pk": self.pk,
+            "add_content_units": [cpk],
+            "remove_content_units": [],
+        }
+        return await adispatch(
+            pull_through_aadd_and_remove,
+            kwargs=body,
+            exclusive_resources=[self],
+            immediate=True,
+        )
+
     def finalize_new_version(self, new_version):
-        """Remove duplicate content when new content with same repo_key_fields is added."""
+        """Remove duplicates and generate metadata for affected artifacts."""
         remove_duplicates(new_version)
+        if not getattr(_pull_through_ctx, "active", False):
+            self._generate_metadata(new_version)
+
+    def _generate_metadata(self, new_version):
+        """Generate maven-metadata.xml and checksums for affected (group_id, artifact_id) pairs."""
+        from collections import defaultdict
+
+        from django.db.models import Q
+
+        from pulp_maven.app.tasks import (
+            METADATA_FILENAMES,
+            _create_metadata_content,
+        )
+
+        affected_pairs = set()
+        for qs in (
+            MavenArtifact.objects.filter(pk__in=new_version.added()),
+            MavenArtifact.objects.filter(pk__in=new_version.removed()),
+        ):
+            for vals in qs.values("group_id", "artifact_id").distinct().iterator():
+                affected_pairs.add((vals["group_id"], vals["artifact_id"]))
+
+        if not affected_pairs:
+            return
+
+        pairs_q = Q()
+        for group_id, artifact_id in affected_pairs:
+            pairs_q |= Q(group_id=group_id, artifact_id=artifact_id)
+
+        stale = MavenMetadata.objects.filter(
+            pk__in=new_version.content,
+            version=None,
+            filename__in=METADATA_FILENAMES,
+        ).filter(pairs_q)
+        new_version.remove_content(stale)
+
+        versions_by_pair = defaultdict(set)
+        for row in (
+            MavenArtifact.objects.filter(pk__in=new_version.content)
+            .filter(pairs_q)
+            .values("group_id", "artifact_id", "version")
+            .distinct()
+        ):
+            versions_by_pair[(row["group_id"], row["artifact_id"])].add(row["version"])
+
+        new_metadata_pks = []
+
+        for (group_id, artifact_id), version_set in versions_by_pair.items():
+            versions = sorted(version_set)
+            if not versions:
+                continue
+            new_metadata_pks.extend(
+                _create_metadata_content(group_id, artifact_id, versions, self.pulp_domain)
+            )
+
+        if new_metadata_pks:
+            new_version.add_content(MavenMetadata.objects.filter(pk__in=new_metadata_pks))
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
