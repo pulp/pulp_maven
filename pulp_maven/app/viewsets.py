@@ -37,7 +37,7 @@ from pulp_maven.app.serializers import (
     MavenRepositorySerializer,
     RepositoryAddCachedContentSerializer,
 )
-from pulp_maven.app.tasks import add_cached_content_to_repository, publish
+from pulp_maven.app.tasks import add_cached_content_to_repository, publish, repair_metadata
 
 
 class MavenArtifactFilter(ContentFilter):
@@ -164,6 +164,28 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin):
                 "remote_pk": str(remote.pk),
                 "repository_pk": str(repository.pk),
             },
+        )
+        return OperationPostponedResponse(result, request)
+
+    @extend_schema(
+        description=(
+            "Trigger an asynchronous task to regenerate all maven-metadata.xml files "
+            "and their checksums for every artifact in the repository."
+        ),
+        summary="Repair metadata",
+        request=None,
+        responses={202: AsyncOperationResponseSerializer},
+    )
+    @action(detail=True, methods=["post"])
+    def repair_metadata(self, request, pk):
+        """
+        Regenerate maven-metadata.xml for all (group_id, artifact_id) pairs.
+        """
+        repository = self.get_object()
+        result = dispatch(
+            repair_metadata,
+            exclusive_resources=[repository],
+            kwargs={"repository_pk": str(repository.pk)},
         )
         return OperationPostponedResponse(result, request)
 
