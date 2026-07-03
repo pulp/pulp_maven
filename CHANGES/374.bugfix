@@ -1,0 +1,1 @@
+Pull-through cache no longer saves maven-metadata.xml and its checksum sidecar files as persistent content. These files are now streamed directly from the remote so clients always get fresh metadata.
