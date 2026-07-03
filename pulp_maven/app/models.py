@@ -182,10 +182,22 @@ class MavenRemote(Remote):
     def get_remote_artifact_content_type(relative_path=None):
         """
         Returns content type that is found at the relative_path.
+
+        Returns None for maven-metadata.xml and its checksum sidecar files so the
+        pull-through handler streams them from the remote without saving locally.
         """
-        pattern = r"\.(xml|xml\.sha1|xml\.md5|xml\.sha224|xml\.sha256|xml\.sha384|xml\.sha512)$"
-        if re.search(pattern, relative_path):
-            return MavenMetadata
+        if relative_path and relative_path.endswith(
+            (
+                "/maven-metadata.xml",
+                ".xml.md5",
+                ".xml.sha1",
+                ".xml.sha224",
+                ".xml.sha256",
+                ".xml.sha384",
+                ".xml.sha512",
+            )
+        ):
+            return None
         return MavenArtifact
 
     class Meta:
