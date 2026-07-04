@@ -8,6 +8,22 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.21.0 (2026-07-03) {: #0.21.0 }
+
+#### Features {: #0.21.0-feature }
+
+- Add repair_metadata API endpoint to regenerate all maven-metadata.xml and checksum files for a Maven repository.
+  [#387.1](https://github.com/pulp/pulp_maven/issues/387.1)
+- Auto-generate maven-metadata.xml and checksum files (.md5, .sha1, .sha256) in finalize_new_version when artifacts are added or removed from a repository version.
+  [#387](https://github.com/pulp/pulp_maven/issues/387)
+
+#### Bugfixes {: #0.21.0-bugfix }
+
+- Pull-through cache no longer saves maven-metadata.xml and its checksum sidecar files as persistent content. These files are now streamed directly from the remote so clients always get fresh metadata.
+  [#374](https://github.com/pulp/pulp_maven/issues/374)
+
+---
+
 ## 0.20.0 (2026-06-30) {: #0.20.0 }
 
 #### Features {: #0.20.0-feature }
