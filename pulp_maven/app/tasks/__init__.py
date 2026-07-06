@@ -9,6 +9,7 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 from asgiref.sync import sync_to_async
 from django.core.files import File as DjangoFile
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 
 from pulpcore.plugin.models import (
     Artifact,
@@ -179,7 +180,12 @@ def repair_metadata(repository_pk):
     ):
         all_pairs[(row["group_id"], row["artifact_id"])].add(row["version"])
 
-    if not all_pairs:
+    has_metadata = MavenMetadata.objects.filter(
+        pk__in=latest_version.content,
+        filename__in=METADATA_FILENAMES,
+    ).exists()
+
+    if not all_pairs and not has_metadata:
         return
 
     from pulp_maven.app.models import _pull_through_ctx
@@ -201,6 +207,21 @@ def repair_metadata(repository_pk):
 
             new_pks = set(new_metadata_pks)
 
+            # Remove metadata for (group_id, artifact_id) pairs that no
+            # longer have any MavenArtifact in the repository, regardless
+            # of the metadata's version field.
+            orphaned = MavenMetadata.objects.filter(
+                pk__in=new_version.content,
+                filename__in=METADATA_FILENAMES,
+            )
+            if all_pairs:
+                valid_pairs_q = Q()
+                for group_id, artifact_id in all_pairs:
+                    valid_pairs_q |= Q(group_id=group_id, artifact_id=artifact_id)
+                orphaned = orphaned.exclude(valid_pairs_q)
+            new_version.remove_content(orphaned)
+
+            # Remove stale repo-level metadata for active pairs.
             stale = MavenMetadata.objects.filter(
                 pk__in=new_version.content,
                 version=None,
