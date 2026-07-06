@@ -1,0 +1,4 @@
+Fixed ``repair_metadata`` not removing orphaned metadata for ``(group_id, artifact_id)``
+pairs that no longer have any corresponding ``MavenArtifact`` in the repository. Previously
+it returned early when no artifacts existed and only cleaned up ``version=None`` metadata,
+leaving version-level metadata behind.
