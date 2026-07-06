@@ -182,26 +182,40 @@ def repair_metadata(repository_pk):
     if not all_pairs:
         return
 
-    with repository.new_version() as new_version:
-        stale = MavenMetadata.objects.filter(
-            pk__in=new_version.content,
-            version=None,
-            filename__in=METADATA_FILENAMES,
-        )
-        new_version.remove_content(stale)
+    from pulp_maven.app.models import _pull_through_ctx
 
-        new_metadata_pks = []
+    _pull_through_ctx.active = True
+    try:
+        with repository.new_version() as new_version:
+            new_metadata_pks = []
 
-        for (group_id, artifact_id), version_set in all_pairs.items():
-            versions = sorted(version_set)
-            if not versions:
-                continue
-            new_metadata_pks.extend(
-                _create_metadata_content(group_id, artifact_id, versions, repository.pulp_domain)
+            for (group_id, artifact_id), version_set in all_pairs.items():
+                versions = sorted(version_set)
+                if not versions:
+                    continue
+                new_metadata_pks.extend(
+                    _create_metadata_content(
+                        group_id, artifact_id, versions, repository.pulp_domain
+                    )
+                )
+
+            new_pks = set(new_metadata_pks)
+
+            stale = MavenMetadata.objects.filter(
+                pk__in=new_version.content,
+                version=None,
+                filename__in=METADATA_FILENAMES,
+            ).exclude(pk__in=new_pks)
+            new_version.remove_content(stale)
+
+            already_present = set(
+                new_version.content.filter(pk__in=new_pks).values_list("pk", flat=True)
             )
-
-        if new_metadata_pks:
-            new_version.add_content(MavenMetadata.objects.filter(pk__in=new_metadata_pks))
+            pks_to_add = new_pks - already_present
+            if pks_to_add:
+                new_version.add_content(MavenMetadata.objects.filter(pk__in=pks_to_add))
+    finally:
+        _pull_through_ctx.active = False
 
     log.info(
         "Repaired metadata: repository=%s, pairs=%d",
@@ -245,7 +259,14 @@ def _create_metadata_content(group_id, artifact_id, versions, pulp_domain):
             with transaction.atomic():
                 metadata_content.save()
         except IntegrityError:
-            metadata_content = MavenMetadata.objects.get(sha256=artifact.sha256)
+            metadata_content = MavenMetadata.objects.get(
+                group_id=group_id,
+                artifact_id=artifact_id,
+                version=None,
+                filename=filename,
+                sha256=artifact.sha256,
+                _pulp_domain=pulp_domain,
+            )
 
         try:
             with transaction.atomic():
