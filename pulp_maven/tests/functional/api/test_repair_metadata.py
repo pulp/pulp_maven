@@ -340,6 +340,130 @@ def test_repair_metadata_with_existing_metadata(
 
 
 @pytest.mark.parallel
+def test_repair_metadata_removes_orphaned_metadata(
+    maven_repo_factory,
+    maven_metadata_api_client,
+    maven_repo_api_client,
+    monitor_task,
+    tmp_path,
+):
+    """repair_metadata removes metadata when no artifacts exist for the pair.
+
+    Regression test for https://github.com/pulp/pulp_maven/issues/394:
+    repair_metadata returned early when all_pairs was empty, leaving
+    orphaned metadata in the repository.
+    """
+    repo = maven_repo_factory()
+    uid = _uid()
+
+    # Upload metadata directly without any corresponding artifact.
+    orphan_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f"<metadata><groupId>com.{uid}</groupId>"
+        "<artifactId>orphanlib</artifactId>"
+        "<versioning><latest>1.0.0</latest><release>1.0.0</release>"
+        "<versions><version>1.0.0</version></versions>"
+        "<lastUpdated>20200101000000</lastUpdated></versioning></metadata>\n"
+    )
+    orphan_file = tmp_path / "maven-metadata.xml"
+    orphan_file.write_text(orphan_xml)
+
+    orphan_metadata = maven_metadata_api_client.upload(
+        relative_path=f"com/{uid}/orphanlib/maven-metadata.xml",
+        file=str(orphan_file),
+    )
+
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href, {"add_content_units": [orphan_metadata.pulp_href]}
+        ).task
+    )
+
+    repo = maven_repo_api_client.read(repo.pulp_href)
+    assert maven_metadata_api_client.list(repository_version=repo.latest_version_href).count > 0, (
+        "Orphaned metadata should be present before repair"
+    )
+
+    response = maven_repo_api_client.repair_metadata(repo.pulp_href)
+    monitor_task(response.task)
+
+    repo = maven_repo_api_client.read(repo.pulp_href)
+    assert maven_metadata_api_client.list(repository_version=repo.latest_version_href).count == 0, (
+        "Orphaned metadata should be removed after repair"
+    )
+
+
+@pytest.mark.parallel
+def test_repair_metadata_removes_orphaned_version_level_metadata(
+    maven_repo_factory,
+    maven_artifact_api_client,
+    maven_metadata_api_client,
+    maven_repo_api_client,
+    random_artifact_factory,
+    monitor_task,
+    tmp_path,
+):
+    """repair_metadata removes version-level metadata for orphaned pairs.
+
+    Regression test for https://github.com/pulp/pulp_maven/issues/394:
+    the stale filter only matched version=None, leaving version-level
+    metadata behind when its artifacts were removed.
+    """
+    repo = maven_repo_factory()
+    uid = _uid()
+
+    artifact = random_artifact_factory(size=64)
+    content = maven_artifact_api_client.upload(
+        artifact=artifact.pulp_href,
+        relative_path=f"com/{uid}/verorphan/1.0.0/verorphan-1.0.0.jar",
+    )
+
+    # Upload version-level maven-metadata.xml (version != None).
+    ver_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f"<metadata><groupId>com.{uid}</groupId>"
+        "<artifactId>verorphan</artifactId>"
+        "<version>1.0.0</version></metadata>\n"
+    )
+    ver_file = tmp_path / "maven-metadata.xml"
+    ver_file.write_text(ver_xml)
+
+    ver_metadata = maven_metadata_api_client.upload(
+        relative_path=f"com/{uid}/verorphan/1.0.0/maven-metadata.xml",
+        file=str(ver_file),
+    )
+
+    # Add both artifact and version-level metadata.
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href,
+            {"add_content_units": [content.pulp_href, ver_metadata.pulp_href]},
+        ).task
+    )
+
+    # Remove the artifact. finalize_new_version cleans up version=None
+    # metadata but leaves version-level metadata behind.
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href, {"remove_content_units": [content.pulp_href]}
+        ).task
+    )
+
+    repo = maven_repo_api_client.read(repo.pulp_href)
+    assert maven_metadata_api_client.list(repository_version=repo.latest_version_href).count > 0, (
+        "Version-level metadata should survive artifact removal"
+    )
+
+    response = maven_repo_api_client.repair_metadata(repo.pulp_href)
+    monitor_task(response.task)
+
+    repo = maven_repo_api_client.read(repo.pulp_href)
+    assert maven_metadata_api_client.list(repository_version=repo.latest_version_href).count == 0, (
+        "All orphaned metadata (including version-level) should be removed"
+    )
+
+
+@pytest.mark.parallel
 def test_repair_metadata_empty_repo_noop(
     maven_repo_factory,
     maven_repo_api_client,
