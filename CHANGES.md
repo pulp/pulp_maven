@@ -8,6 +8,22 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.21.2 (2026-07-07) {: #0.21.2 }
+
+#### Bugfixes {: #0.21.2-bugfix }
+
+- Fixed ``repair_metadata`` not removing orphaned metadata for ``(group_id, artifact_id)``
+  pairs that no longer have any corresponding ``MavenArtifact`` in the repository. Previously
+  it returned early when no artifacts existed and only cleaned up ``version=None`` metadata,
+  leaving version-level metadata behind.
+  [#394](https://github.com/pulp/pulp_maven/issues/394)
+- Fixed ``repair_metadata`` failing with ``AssertionError`` in pulpcore's ``_compute_counts()``
+  due to ``finalize_new_version`` redundantly running ``_generate_metadata`` after
+  ``repair_metadata`` had already managed all metadata content in the repository version.
+  [#395](https://github.com/pulp/pulp_maven/issues/395)
+
+---
+
 ## 0.21.1 (2026-07-07) {: #0.21.1 }
 
 No significant changes.
