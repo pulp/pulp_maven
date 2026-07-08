@@ -395,3 +395,246 @@ def test_deploy_api_generates_metadata(
     assert root.findtext("artifactId") == "deployed"
     versions = [v.text for v in root.findall(".//versions/version")]
     assert versions == ["1.0.0"]
+
+
+@pytest.mark.parallel
+def test_version_level_metadata_generated_for_snapshot(
+    maven_repo_factory,
+    maven_distribution_factory,
+    maven_artifact_api_client,
+    maven_metadata_api_client,
+    maven_repo_api_client,
+    random_artifact_factory,
+    monitor_task,
+    distribution_base_url,
+):
+    """Adding SNAPSHOT artifacts generates version-level maven-metadata.xml."""
+    repo = maven_repo_factory()
+    distro = maven_distribution_factory(repository=repo.pulp_href)
+    base_url = distribution_base_url(distro.base_url)
+    uid = _uid()
+
+    a1 = random_artifact_factory(size=64)
+    c1 = maven_artifact_api_client.upload(
+        artifact=a1.pulp_href,
+        relative_path=f"com/{uid}/snaplib/1.0-SNAPSHOT/snaplib-1.0-SNAPSHOT.jar",
+    )
+    a2 = random_artifact_factory(size=64)
+    c2 = maven_artifact_api_client.upload(
+        artifact=a2.pulp_href,
+        relative_path=f"com/{uid}/snaplib/1.0-SNAPSHOT/snaplib-1.0-SNAPSHOT.pom",
+    )
+
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href,
+            {"add_content_units": [c1.pulp_href, c2.pulp_href]},
+        ).task
+    )
+    repo = maven_repo_api_client.read(repo.pulp_href)
+
+    # 4 repo-level + 4 version-level = 8
+    metadata_list = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
+    assert metadata_list.count == 8
+
+    # Check version-level metadata XML
+    ver_url = urljoin(base_url, f"com/{uid}/snaplib/1.0-SNAPSHOT/maven-metadata.xml")
+    downloaded = download_file(ver_url)
+    assert downloaded.response_obj.status == 200
+
+    root = ElementTree.fromstring(downloaded.body)
+    assert root.findtext("groupId") == f"com.{uid}"
+    assert root.findtext("artifactId") == "snaplib"
+    assert root.findtext("version") == "1.0-SNAPSHOT"
+
+    versioning = root.find("versioning")
+    assert versioning.find("snapshot").findtext("localCopy") == "true"
+    assert versioning.findtext("lastUpdated") is not None
+
+    sv_list = versioning.findall("snapshotVersions/snapshotVersion")
+    extensions = sorted(sv.findtext("extension") for sv in sv_list)
+    assert extensions == ["jar", "pom"]
+    for sv in sv_list:
+        assert sv.findtext("value") == "1.0-SNAPSHOT"
+
+
+@pytest.mark.parallel
+def test_version_level_metadata_not_generated_for_release(
+    maven_repo_factory,
+    maven_artifact_api_client,
+    maven_metadata_api_client,
+    maven_repo_api_client,
+    random_artifact_factory,
+    monitor_task,
+):
+    """Non-SNAPSHOT versions do not get version-level metadata."""
+    repo = maven_repo_factory()
+    uid = _uid()
+
+    artifact = random_artifact_factory(size=64)
+    content = maven_artifact_api_client.upload(
+        artifact=artifact.pulp_href,
+        relative_path=f"com/{uid}/rellib/1.0.0/rellib-1.0.0.jar",
+    )
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href, {"add_content_units": [content.pulp_href]}
+        ).task
+    )
+    repo = maven_repo_api_client.read(repo.pulp_href)
+
+    # Only repo-level metadata: xml + 3 checksums = 4
+    metadata_list = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
+    assert metadata_list.count == 4
+
+    # All metadata should have version=None (repo-level)
+    for m in metadata_list.results:
+        assert m.version is None
+
+
+@pytest.mark.parallel
+def test_version_level_metadata_checksums_match(
+    maven_repo_factory,
+    maven_distribution_factory,
+    maven_artifact_api_client,
+    maven_repo_api_client,
+    random_artifact_factory,
+    monitor_task,
+    distribution_base_url,
+):
+    """Version-level checksum files match the generated maven-metadata.xml."""
+    repo = maven_repo_factory()
+    distro = maven_distribution_factory(repository=repo.pulp_href)
+    base_url = distribution_base_url(distro.base_url)
+    uid = _uid()
+
+    artifact = random_artifact_factory(size=64)
+    content = maven_artifact_api_client.upload(
+        artifact=artifact.pulp_href,
+        relative_path=f"com/{uid}/vcksum/1.0-SNAPSHOT/vcksum-1.0-SNAPSHOT.jar",
+    )
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href, {"add_content_units": [content.pulp_href]}
+        ).task
+    )
+
+    ver_url = urljoin(base_url, f"com/{uid}/vcksum/1.0-SNAPSHOT/maven-metadata.xml")
+    metadata_download = download_file(ver_url)
+    metadata_body = metadata_download.body
+
+    for ext, hash_func in [
+        (".md5", hashlib.md5),
+        (".sha1", hashlib.sha1),
+        (".sha256", hashlib.sha256),
+    ]:
+        checksum_url = urljoin(base_url, f"com/{uid}/vcksum/1.0-SNAPSHOT/maven-metadata.xml{ext}")
+        checksum_download = download_file(checksum_url)
+        assert checksum_download.response_obj.status == 200
+        expected = hash_func(metadata_body).hexdigest()
+        assert checksum_download.body.decode().strip() == expected
+
+
+@pytest.mark.parallel
+def test_version_level_metadata_removed_when_snapshot_removed(
+    maven_repo_factory,
+    maven_artifact_api_client,
+    maven_metadata_api_client,
+    maven_repo_api_client,
+    random_artifact_factory,
+    monitor_task,
+):
+    """Version-level metadata is removed when all SNAPSHOT artifacts are removed."""
+    repo = maven_repo_factory()
+    uid = _uid()
+
+    a1 = random_artifact_factory(size=64)
+    c1 = maven_artifact_api_client.upload(
+        artifact=a1.pulp_href,
+        relative_path=f"com/{uid}/rmsnap/1.0-SNAPSHOT/rmsnap-1.0-SNAPSHOT.jar",
+    )
+    a2 = random_artifact_factory(size=64)
+    c2 = maven_artifact_api_client.upload(
+        artifact=a2.pulp_href,
+        relative_path=f"com/{uid}/rmsnap/2.0.0/rmsnap-2.0.0.jar",
+    )
+
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href,
+            {"add_content_units": [c1.pulp_href, c2.pulp_href]},
+        ).task
+    )
+    repo = maven_repo_api_client.read(repo.pulp_href)
+
+    # 4 repo-level + 4 version-level = 8
+    metadata_list = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
+    assert metadata_list.count == 8
+
+    # Remove the SNAPSHOT artifact
+    monitor_task(
+        maven_repo_api_client.modify(repo.pulp_href, {"remove_content_units": [c1.pulp_href]}).task
+    )
+    repo = maven_repo_api_client.read(repo.pulp_href)
+
+    # Only repo-level metadata should remain (4)
+    metadata_list = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
+    assert metadata_list.count == 4
+    for m in metadata_list.results:
+        assert m.version is None
+
+
+@pytest.mark.parallel
+def test_version_level_metadata_with_classifier(
+    maven_repo_factory,
+    maven_distribution_factory,
+    maven_artifact_api_client,
+    maven_repo_api_client,
+    random_artifact_factory,
+    monitor_task,
+    distribution_base_url,
+):
+    """Version-level metadata includes classifier when present in the filename."""
+    repo = maven_repo_factory()
+    distro = maven_distribution_factory(repository=repo.pulp_href)
+    base_url = distribution_base_url(distro.base_url)
+    uid = _uid()
+
+    content_hrefs = []
+    for suffix, name in [
+        ("jar", "clslib-1.0-SNAPSHOT.jar"),
+        ("pom", "clslib-1.0-SNAPSHOT.pom"),
+        ("jar", "clslib-1.0-SNAPSHOT-sources.jar"),
+    ]:
+        artifact = random_artifact_factory(size=64)
+        content = maven_artifact_api_client.upload(
+            artifact=artifact.pulp_href,
+            relative_path=f"com/{uid}/clslib/1.0-SNAPSHOT/{name}",
+        )
+        content_hrefs.append(content.pulp_href)
+
+    monitor_task(
+        maven_repo_api_client.modify(repo.pulp_href, {"add_content_units": content_hrefs}).task
+    )
+
+    ver_url = urljoin(base_url, f"com/{uid}/clslib/1.0-SNAPSHOT/maven-metadata.xml")
+    downloaded = download_file(ver_url)
+    root = ElementTree.fromstring(downloaded.body)
+
+    sv_list = root.findall(".//snapshotVersions/snapshotVersion")
+    assert len(sv_list) == 3
+
+    entries = []
+    for sv in sv_list:
+        entry = {"extension": sv.findtext("extension")}
+        classifier = sv.findtext("classifier")
+        if classifier:
+            entry["classifier"] = classifier
+        entries.append(entry)
+
+    entries.sort(key=lambda e: (e["extension"], e.get("classifier", "")))
+    assert entries == [
+        {"extension": "jar"},
+        {"extension": "jar", "classifier": "sources"},
+        {"extension": "pom"},
+    ]
