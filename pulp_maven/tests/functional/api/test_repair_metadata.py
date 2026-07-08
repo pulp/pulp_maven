@@ -464,6 +464,120 @@ def test_repair_metadata_removes_orphaned_version_level_metadata(
 
 
 @pytest.mark.parallel
+def test_repair_metadata_generates_version_level_metadata(
+    populated_repo,
+    maven_metadata_api_client,
+    maven_repo_api_client,
+    monitor_task,
+):
+    """repair_metadata regenerates version-level SNAPSHOT metadata."""
+    repo, base_url, uid = populated_repo([("com", "snaprepair", ["1.0.0", "2.0.0-SNAPSHOT"])])
+
+    response = maven_repo_api_client.repair_metadata(repo.pulp_href)
+    monitor_task(response.task)
+
+    repo = maven_repo_api_client.read(repo.pulp_href)
+
+    # 4 repo-level + 4 version-level = 8
+    metadata_list = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
+    assert metadata_list.count == 8
+
+    ver_url = urljoin(base_url, f"com/{uid}/snaprepair/2.0.0-SNAPSHOT/maven-metadata.xml")
+    downloaded = download_file(ver_url)
+    assert downloaded.response_obj.status == 200
+
+    root = ElementTree.fromstring(downloaded.body)
+    assert root.findtext("groupId") == f"com.{uid}"
+    assert root.findtext("artifactId") == "snaprepair"
+    assert root.findtext("version") == "2.0.0-SNAPSHOT"
+
+    versioning = root.find("versioning")
+    assert versioning.find("snapshot").findtext("localCopy") == "true"
+
+    sv_list = versioning.findall("snapshotVersions/snapshotVersion")
+    assert len(sv_list) == 1
+    assert sv_list[0].findtext("extension") == "jar"
+    assert sv_list[0].findtext("value") == "2.0.0-SNAPSHOT"
+
+
+@pytest.mark.parallel
+def test_repair_metadata_replaces_stale_version_level_metadata(
+    maven_repo_factory,
+    maven_distribution_factory,
+    maven_artifact_api_client,
+    maven_metadata_api_client,
+    maven_repo_api_client,
+    random_artifact_factory,
+    monitor_task,
+    distribution_base_url,
+    tmp_path,
+):
+    """repair_metadata replaces stale version-level SNAPSHOT metadata."""
+    repo = maven_repo_factory()
+    distro = maven_distribution_factory(repository=repo.pulp_href)
+    base_url = distribution_base_url(distro.base_url)
+    uid = _uid()
+
+    content_hrefs = []
+    for name in ["snapstale-1.0-SNAPSHOT.jar", "snapstale-1.0-SNAPSHOT.pom"]:
+        artifact = random_artifact_factory(size=64)
+        content = maven_artifact_api_client.upload(
+            artifact=artifact.pulp_href,
+            relative_path=f"com/{uid}/snapstale/1.0-SNAPSHOT/{name}",
+        )
+        content_hrefs.append(content.pulp_href)
+
+    monitor_task(
+        maven_repo_api_client.modify(repo.pulp_href, {"add_content_units": content_hrefs}).task
+    )
+
+    # Upload stale version-level metadata that only lists jar (missing pom)
+    stale_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f"<metadata><groupId>com.{uid}</groupId>"
+        "<artifactId>snapstale</artifactId>"
+        "<version>1.0-SNAPSHOT</version>"
+        "<versioning><snapshot><localCopy>true</localCopy></snapshot>"
+        "<snapshotVersions>"
+        "<snapshotVersion><extension>jar</extension>"
+        "<value>1.0-SNAPSHOT</value><updated>20200101000000</updated>"
+        "</snapshotVersion>"
+        "</snapshotVersions>"
+        "<lastUpdated>20200101000000</lastUpdated></versioning></metadata>\n"
+    )
+    stale_file = tmp_path / "maven-metadata.xml"
+    stale_file.write_text(stale_xml)
+
+    stale_metadata = maven_metadata_api_client.upload(
+        relative_path=f"com/{uid}/snapstale/1.0-SNAPSHOT/maven-metadata.xml",
+        file=str(stale_file),
+    )
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href, {"add_content_units": [stale_metadata.pulp_href]}
+        ).task
+    )
+
+    # Verify the stale metadata is served
+    ver_url = urljoin(base_url, f"com/{uid}/snapstale/1.0-SNAPSHOT/maven-metadata.xml")
+    downloaded = download_file(ver_url)
+    root = ElementTree.fromstring(downloaded.body)
+    sv_list = root.findall(".//snapshotVersions/snapshotVersion")
+    assert len(sv_list) == 1, "Should have stale metadata with only jar"
+
+    # Run repair
+    response = maven_repo_api_client.repair_metadata(repo.pulp_href)
+    monitor_task(response.task)
+
+    # Verify the repaired metadata has both jar and pom
+    downloaded = download_file(ver_url)
+    root = ElementTree.fromstring(downloaded.body)
+    sv_list = root.findall(".//snapshotVersions/snapshotVersion")
+    extensions = sorted(sv.findtext("extension") for sv in sv_list)
+    assert extensions == ["jar", "pom"]
+
+
+@pytest.mark.parallel
 def test_repair_metadata_empty_repo_noop(
     maven_repo_factory,
     maven_repo_api_client,

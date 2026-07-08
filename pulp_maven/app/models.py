@@ -316,15 +316,21 @@ class MavenRepository(Repository):
         from pulp_maven.app.tasks import (
             METADATA_FILENAMES,
             _create_metadata_content,
+            _create_version_level_metadata_content,
         )
 
         affected_pairs = set()
+        affected_snapshot_triples = set()
         for qs in (
             MavenArtifact.objects.filter(pk__in=new_version.added()),
             MavenArtifact.objects.filter(pk__in=new_version.removed()),
         ):
-            for vals in qs.values("group_id", "artifact_id").distinct().iterator():
+            for vals in qs.values("group_id", "artifact_id", "version").distinct().iterator():
                 affected_pairs.add((vals["group_id"], vals["artifact_id"]))
+                if vals["version"] and vals["version"].endswith("-SNAPSHOT"):
+                    affected_snapshot_triples.add(
+                        (vals["group_id"], vals["artifact_id"], vals["version"])
+                    )
 
         if not affected_pairs:
             return
@@ -358,6 +364,34 @@ class MavenRepository(Repository):
             new_metadata_pks.extend(
                 _create_metadata_content(group_id, artifact_id, versions, self.pulp_domain)
             )
+
+        if affected_snapshot_triples:
+            triples_q = Q()
+            for group_id, artifact_id, version in affected_snapshot_triples:
+                triples_q |= Q(group_id=group_id, artifact_id=artifact_id, version=version)
+
+            stale_version = MavenMetadata.objects.filter(
+                pk__in=new_version.content,
+                filename__in=METADATA_FILENAMES,
+            ).filter(triples_q)
+            new_version.remove_content(stale_version)
+
+            for group_id, artifact_id, version in affected_snapshot_triples:
+                filenames = list(
+                    MavenArtifact.objects.filter(
+                        pk__in=new_version.content,
+                        group_id=group_id,
+                        artifact_id=artifact_id,
+                        version=version,
+                    ).values_list("filename", flat=True)
+                )
+                if not filenames:
+                    continue
+                new_metadata_pks.extend(
+                    _create_version_level_metadata_content(
+                        group_id, artifact_id, version, filenames, self.pulp_domain
+                    )
+                )
 
         if new_metadata_pks:
             new_version.add_content(MavenMetadata.objects.filter(pk__in=new_metadata_pks))

@@ -205,6 +205,30 @@ def repair_metadata(repository_pk):
                     )
                 )
 
+            for (group_id, artifact_id), version_set in all_pairs.items():
+                for version in sorted(version_set):
+                    if not version.endswith("-SNAPSHOT"):
+                        continue
+                    filenames = list(
+                        MavenArtifact.objects.filter(
+                            pk__in=new_version.content,
+                            group_id=group_id,
+                            artifact_id=artifact_id,
+                            version=version,
+                        ).values_list("filename", flat=True)
+                    )
+                    if not filenames:
+                        continue
+                    new_metadata_pks.extend(
+                        _create_version_level_metadata_content(
+                            group_id,
+                            artifact_id,
+                            version,
+                            filenames,
+                            repository.pulp_domain,
+                        )
+                    )
+
             new_pks = set(new_metadata_pks)
 
             # Remove metadata for (group_id, artifact_id) pairs that no
@@ -229,6 +253,14 @@ def repair_metadata(repository_pk):
             ).exclude(pk__in=new_pks)
             new_version.remove_content(stale)
 
+            # Remove stale version-level SNAPSHOT metadata for active pairs.
+            stale_version = MavenMetadata.objects.filter(
+                pk__in=new_version.content,
+                version__endswith="-SNAPSHOT",
+                filename__in=METADATA_FILENAMES,
+            ).exclude(pk__in=new_pks)
+            new_version.remove_content(stale_version)
+
             already_present = set(
                 new_version.content.filter(pk__in=new_pks).values_list("pk", flat=True)
             )
@@ -245,16 +277,11 @@ def repair_metadata(repository_pk):
     )
 
 
-def _create_metadata_content(group_id, artifact_id, versions, pulp_domain):
-    """
-    Build maven-metadata.xml and checksum files for a single (group_id, artifact_id) pair.
+def _save_metadata_content(group_id, artifact_id, version, base_path, metadata_xml, pulp_domain):
+    """Save maven-metadata.xml and checksum files as MavenMetadata content.
 
-    Returns a list of MavenMetadata primary keys for the created content.
+    Returns a list of MavenMetadata primary keys.
     """
-    metadata_xml = _build_maven_metadata_xml(group_id, artifact_id, versions)
-    group_path = group_id.replace(".", "/")
-    base_path = f"{group_path}/{artifact_id}/maven-metadata.xml"
-
     xml_artifact = _save_artifact(metadata_xml, pulp_domain)
 
     files_to_create = [("maven-metadata.xml", base_path, xml_artifact)]
@@ -271,7 +298,7 @@ def _create_metadata_content(group_id, artifact_id, versions, pulp_domain):
         metadata_content = MavenMetadata(
             group_id=group_id,
             artifact_id=artifact_id,
-            version=None,
+            version=version,
             filename=filename,
             sha256=artifact.sha256,
             _pulp_domain=pulp_domain,
@@ -283,7 +310,7 @@ def _create_metadata_content(group_id, artifact_id, versions, pulp_domain):
             metadata_content = MavenMetadata.objects.get(
                 group_id=group_id,
                 artifact_id=artifact_id,
-                version=None,
+                version=version,
                 filename=filename,
                 sha256=artifact.sha256,
                 _pulp_domain=pulp_domain,
@@ -302,6 +329,17 @@ def _create_metadata_content(group_id, artifact_id, versions, pulp_domain):
         pks.append(metadata_content.pk)
 
     return pks
+
+
+def _create_metadata_content(group_id, artifact_id, versions, pulp_domain):
+    """Build repo-level maven-metadata.xml and checksums for a (group_id, artifact_id) pair.
+
+    Returns a list of MavenMetadata primary keys.
+    """
+    metadata_xml = _build_maven_metadata_xml(group_id, artifact_id, versions)
+    group_path = group_id.replace(".", "/")
+    base_path = f"{group_path}/{artifact_id}/maven-metadata.xml"
+    return _save_metadata_content(group_id, artifact_id, None, base_path, metadata_xml, pulp_domain)
 
 
 def _build_maven_metadata_xml(group_id, artifact_id, versions):
@@ -327,6 +365,75 @@ def _build_maven_metadata_xml(group_id, artifact_id, versions):
         b'<?xml version="1.0" encoding="UTF-8"?>\n'
         + tostring(root, encoding="unicode").encode("utf-8")
         + b"\n"
+    )
+
+
+def _parse_extension_and_classifier(filename, artifact_id, version):
+    """Extract extension and optional classifier from a Maven filename."""
+    prefix = f"{artifact_id}-{version}"
+    if not filename.startswith(prefix):
+        ext = filename.rsplit(".", 1)[-1] if "." in filename else ""
+        return ext, None
+    remainder = filename[len(prefix) :]
+    if remainder.startswith("-"):
+        remainder = remainder[1:]
+        if "." in remainder:
+            classifier, extension = remainder.split(".", 1)
+        else:
+            classifier = remainder
+            extension = ""
+        return extension, classifier
+    elif remainder.startswith("."):
+        return remainder[1:], None
+    else:
+        ext = filename.rsplit(".", 1)[-1] if "." in filename else ""
+        return ext, None
+
+
+def _build_version_level_metadata_xml(group_id, artifact_id, version, filenames):
+    """Build a version-level maven-metadata.xml for a SNAPSHOT version."""
+    root = Element("metadata")
+    SubElement(root, "groupId").text = group_id
+    SubElement(root, "artifactId").text = artifact_id
+    SubElement(root, "version").text = version
+
+    versioning = SubElement(root, "versioning")
+
+    snapshot = SubElement(versioning, "snapshot")
+    SubElement(snapshot, "localCopy").text = "true"
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    updated = now.strftime("%Y%m%d%H%M%S")
+
+    sv_list = SubElement(versioning, "snapshotVersions")
+    for fname in sorted(filenames):
+        extension, classifier = _parse_extension_and_classifier(fname, artifact_id, version)
+        sv = SubElement(sv_list, "snapshotVersion")
+        if classifier:
+            SubElement(sv, "classifier").text = classifier
+        SubElement(sv, "extension").text = extension
+        SubElement(sv, "value").text = version
+        SubElement(sv, "updated").text = updated
+
+    SubElement(versioning, "lastUpdated").text = updated
+
+    return (
+        b'<?xml version="1.0" encoding="UTF-8"?>\n'
+        + tostring(root, encoding="unicode").encode("utf-8")
+        + b"\n"
+    )
+
+
+def _create_version_level_metadata_content(group_id, artifact_id, version, filenames, pulp_domain):
+    """Build version-level maven-metadata.xml and checksums for a SNAPSHOT version.
+
+    Returns a list of MavenMetadata primary keys.
+    """
+    metadata_xml = _build_version_level_metadata_xml(group_id, artifact_id, version, filenames)
+    group_path = group_id.replace(".", "/")
+    base_path = f"{group_path}/{artifact_id}/{version}/maven-metadata.xml"
+    return _save_metadata_content(
+        group_id, artifact_id, version, base_path, metadata_xml, pulp_domain
     )
 
 
