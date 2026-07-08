@@ -1,3 +1,0 @@
-Fixed ``repair_metadata`` failing with ``AssertionError`` in pulpcore's ``_compute_counts()``
-due to ``finalize_new_version`` redundantly running ``_generate_metadata`` after
-``repair_metadata`` had already managed all metadata content in the repository version.
