@@ -11,8 +11,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Linting
 ```bash
 pip install -r lint_requirements.txt
-black --check --diff .   # format check (line-length: 100)
-flake8                   # linting (config in .flake8)
+ruff format --check --diff   # format check
+ruff check                    # linting
 ```
 
 ### Unit Tests
@@ -73,5 +73,5 @@ Non-trivial changes require a changelog entry. Add a file to `CHANGES/` named `<
 
 - **CI files are auto-generated** by [plugin_template](https://github.com/pulp/plugin_template). Files in `.github/workflows/`, `.ci/`, and several root-level config files carry `# WARNING: DO NOT EDIT!` headers — update them via `./plugin-template --github pulp_maven` instead.
 - **Pulpcore imports** must only use the public `pulpcore.plugin` API (enforced by `.ci/scripts/check_pulpcore_imports.sh`).
-- **Line length**: 100 characters (both `black` and `flake8`).
+- **Line length**: 100 characters (enforced by `ruff`).
 - **Migrations** live in `pulp_maven/app/migrations/` and must be committed; the CI checks for uncommitted migrations.
