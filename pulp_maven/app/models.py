@@ -339,12 +339,17 @@ class MavenRepository(Repository):
         for group_id, artifact_id in affected_pairs:
             pairs_q |= Q(group_id=group_id, artifact_id=artifact_id)
 
-        stale = MavenMetadata.objects.filter(
-            pk__in=new_version.content,
-            version=None,
-            filename__in=METADATA_FILENAMES,
-        ).filter(pairs_q)
-        new_version.remove_content(stale)
+        stale_pks = list(
+            MavenMetadata.objects.filter(
+                pk__in=new_version.content,
+                version=None,
+                filename__in=METADATA_FILENAMES,
+            )
+            .filter(pairs_q)
+            .values_list("pk", flat=True)
+        )
+        if stale_pks:
+            new_version.remove_content(MavenMetadata.objects.filter(pk__in=stale_pks))
 
         versions_by_pair = defaultdict(set)
         for row in (
@@ -370,11 +375,16 @@ class MavenRepository(Repository):
             for group_id, artifact_id, version in affected_snapshot_triples:
                 triples_q |= Q(group_id=group_id, artifact_id=artifact_id, version=version)
 
-            stale_version = MavenMetadata.objects.filter(
-                pk__in=new_version.content,
-                filename__in=METADATA_FILENAMES,
-            ).filter(triples_q)
-            new_version.remove_content(stale_version)
+            stale_version_pks = list(
+                MavenMetadata.objects.filter(
+                    pk__in=new_version.content,
+                    filename__in=METADATA_FILENAMES,
+                )
+                .filter(triples_q)
+                .values_list("pk", flat=True)
+            )
+            if stale_version_pks:
+                new_version.remove_content(MavenMetadata.objects.filter(pk__in=stale_version_pks))
 
             for group_id, artifact_id, version in affected_snapshot_triples:
                 filenames = list(
