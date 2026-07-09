@@ -8,6 +8,16 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.22.1 (2026-07-09) {: #0.22.1 }
+
+#### Bugfixes {: #0.22.1-bugfix }
+
+- Materialized stale metadata querysets before passing them to ``remove_content`` to prevent
+  ``content_ids``/``RepositoryContent`` mismatch on repositories with >= 65,535 content items.
+  [#405](https://github.com/pulp/pulp_maven/issues/405)
+
+---
+
 ## 0.22.0 (2026-07-08) {: #0.22.0 }
 
 #### Features {: #0.22.0-feature }
