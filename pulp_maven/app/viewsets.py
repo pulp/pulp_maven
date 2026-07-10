@@ -11,7 +11,6 @@ from pulpcore.plugin.viewsets import (
     ContentFilter,
     DistributionViewSet,
     OperationPostponedResponse,
-    PublicationViewSet,
     RemoteViewSet,
     RepositoryVersionViewSet,
     RepositoryViewSet,
@@ -22,7 +21,6 @@ from pulp_maven.app.models import (
     MavenArtifact,
     MavenDistribution,
     MavenMetadata,
-    MavenPublication,
     MavenRemote,
     MavenRepository,
 )
@@ -32,12 +30,11 @@ from pulp_maven.app.serializers import (
     MavenDistributionSerializer,
     MavenMetadataSerializer,
     MavenMetadataUploadSerializer,
-    MavenPublicationSerializer,
     MavenRemoteSerializer,
     MavenRepositorySerializer,
     RepositoryAddCachedContentSerializer,
 )
-from pulp_maven.app.tasks import add_cached_content_to_repository, publish, repair_metadata
+from pulp_maven.app.tasks import add_cached_content_to_repository, repair_metadata
 
 
 class MavenArtifactFilter(ContentFilter):
@@ -196,38 +193,6 @@ class MavenRepositoryVersionViewSet(RepositoryVersionViewSet):
     """
 
     parent_viewset = MavenRepositoryViewSet
-
-
-class MavenPublicationViewSet(PublicationViewSet):
-    """
-    A ViewSet for MavenPublication.
-    """
-
-    endpoint_name = "maven"
-    queryset = MavenPublication.objects.exclude(complete=False)
-    serializer_class = MavenPublicationSerializer
-
-    @extend_schema(
-        description="Trigger an asynchronous task to publish Maven content.",
-        responses={202: AsyncOperationResponseSerializer},
-    )
-    def create(self, request):
-        """
-        Publishes a repository.
-
-        Either the ``repository`` or the ``repository_version`` fields can
-        be provided but not both at the same time.
-        """
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        repository_version = serializer.validated_data.get("repository_version")
-
-        result = dispatch(
-            publish,
-            shared_resources=[repository_version.repository],
-            kwargs={"repository_version_pk": str(repository_version.pk)},
-        )
-        return OperationPostponedResponse(result, request)
 
 
 class MavenDistributionViewSet(DistributionViewSet):
