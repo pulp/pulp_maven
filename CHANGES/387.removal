@@ -1,0 +1,3 @@
+Removed MavenPublication model, publish task, and autopublish field from MavenRepository. Metadata is now generated incrementally during repository version creation via finalize_new_version, making the separate publish step unnecessary.
+
+**Action required:** Before upgrading, all MavenDistributions must be switched from pointing at a publication to pointing at a repository directly. Distributions still referencing a publication after the upgrade will stop serving content.
