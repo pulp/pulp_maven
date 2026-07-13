@@ -1,0 +1,2 @@
+Added metadata management guide documenting automatic maven-metadata.xml generation,
+the simplified workflow without publications, and the repair_metadata endpoint.
