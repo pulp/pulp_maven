@@ -1,2 +1,0 @@
-Materialized stale metadata querysets before passing them to ``remove_content`` to prevent
-``content_ids``/``RepositoryContent`` mismatch on repositories with >= 65,535 content items.
