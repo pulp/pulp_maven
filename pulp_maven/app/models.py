@@ -183,19 +183,23 @@ class MavenRemote(Remote):
         """
         Returns content type that is found at the relative_path.
 
-        Returns None for maven-metadata.xml and its checksum sidecar files so the
-        pull-through handler streams them from the remote without saving locally.
+        Returns None for maven-metadata.xml, its checksum sidecar files, and
+        .meta/prefixes.txt so the pull-through handler streams them from the
+        remote without saving locally.
         """
-        if relative_path and relative_path.endswith(
-            (
-                "/maven-metadata.xml",
-                ".xml.md5",
-                ".xml.sha1",
-                ".xml.sha224",
-                ".xml.sha256",
-                ".xml.sha384",
-                ".xml.sha512",
+        if relative_path and (
+            relative_path.endswith(
+                (
+                    "/maven-metadata.xml",
+                    ".xml.md5",
+                    ".xml.sha1",
+                    ".xml.sha224",
+                    ".xml.sha256",
+                    ".xml.sha384",
+                    ".xml.sha512",
+                )
             )
+            or relative_path == ".meta/prefixes.txt"
         ):
             return None
         return MavenArtifact
@@ -293,8 +297,11 @@ class MavenRepository(Repository):
 
         from pulp_maven.app.tasks import (
             METADATA_FILENAMES,
+            PREFIXES_TXT_FILENAME,
+            _compute_prefix,
             _create_metadata_content,
             _create_version_level_metadata_content,
+            _save_prefixes_txt,
         )
 
         affected_pairs = set()
@@ -383,6 +390,59 @@ class MavenRepository(Repository):
 
         if new_metadata_pks:
             new_version.add_content(MavenMetadata.objects.filter(pk__in=new_metadata_pks))
+
+        # --- prefixes.txt generation ---
+        # Compute prefixes from the affected group_ids. If the set of
+        # prefixes in the repository changed (new prefixes appeared or an
+        # existing prefix lost all its artifacts), regenerate the file.
+
+        # Changed artifact prefixes (from removed or added artifacts)
+        affected_prefixes = {_compute_prefix(gid) for gid, _ in affected_pairs}
+
+        # Get all group_ids currently in the version (across ALL artifacts,
+        # not just the affected ones) so we can check whether the affected
+        # prefixes are truly new or truly gone.
+        all_group_ids = set(
+            MavenArtifact.objects.filter(pk__in=new_version.content)
+            .values_list("group_id", flat=True)
+            .distinct()
+        )
+        # All prefixes in the repo now
+        current_prefixes = {_compute_prefix(gid) for gid in all_group_ids}
+
+        unaffected_group_ids = set(
+            MavenArtifact.objects.filter(pk__in=new_version.content)
+            .exclude(pairs_q)
+            .values_list("group_id", flat=True)
+            .distinct()
+        )
+
+        unaffected_prefixes = {_compute_prefix(gid) for gid in unaffected_group_ids}
+
+        # affected prefixes not in unaffected prefix list? -> prefixes added
+        # affected prefixes not in current prefix list? -> prefixes removed
+        prefix_set_changed = bool(affected_prefixes - unaffected_prefixes) or bool(
+            affected_prefixes - current_prefixes
+        )
+
+        # Also check if this repository version has a prefixes.txt file.
+        # This catches the scenario where this logic runs for the first time
+        # on a repository that has never had a 'prefixes.txt' file and adds
+        # an artifact under an already existing prefix, so no file is generated.
+        old_prefixes_pks = list(
+            MavenMetadata.objects.filter(
+                pk__in=new_version.content,
+                filename=PREFIXES_TXT_FILENAME,
+            ).values_list("pk", flat=True)
+        )
+        if prefix_set_changed or not old_prefixes_pks:
+            # Remove old prefixes.txt from the version
+            if old_prefixes_pks:
+                new_version.remove_content(MavenMetadata.objects.filter(pk__in=old_prefixes_pks))
+
+            if current_prefixes:
+                prefixes_pks = _save_prefixes_txt(current_prefixes, self.pulp_domain)
+                new_version.add_content(MavenMetadata.objects.filter(pk__in=prefixes_pks))
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"

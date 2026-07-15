@@ -199,7 +199,7 @@ def test_repair_metadata_creates_new_version(
     assert repo.latest_version_href != version_before
 
     metadata_list = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
-    assert metadata_list.count == 4  # xml + 3 checksums
+    assert metadata_list.count == 5  # xml + 3 checksums + prefixes.txt
 
 
 @pytest.mark.parallel
@@ -478,9 +478,9 @@ def test_repair_metadata_generates_version_level_metadata(
 
     repo = maven_repo_api_client.read(repo.pulp_href)
 
-    # 4 repo-level + 4 version-level = 8
+    # 4 repo-level + 4 version-level + prefixes.txt = 9
     metadata_list = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
-    assert metadata_list.count == 8
+    assert metadata_list.count == 9
 
     ver_url = urljoin(base_url, f"com/{uid}/snaprepair/2.0.0-SNAPSHOT/maven-metadata.xml")
     downloaded = download_file(ver_url)
