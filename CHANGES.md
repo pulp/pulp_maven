@@ -8,6 +8,29 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.23.0 (2026-07-14) {: #0.23.0 }
+
+#### Bugfixes {: #0.23.0-bugfix }
+
+- Materialized stale metadata querysets before passing them to ``remove_content`` to prevent
+  ``content_ids``/``RepositoryContent`` mismatch on repositories with >= 65,535 content items.
+  [#405](https://github.com/pulp/pulp_maven/issues/405)
+
+#### Improved Documentation {: #0.23.0-doc }
+
+- Added metadata management guide documenting automatic maven-metadata.xml generation,
+  the simplified workflow without publications, and the repair_metadata endpoint.
+  [#387](https://github.com/pulp/pulp_maven/issues/387)
+
+#### Removals {: #0.23.0-removal }
+
+- Removed MavenPublication model, publish task, and autopublish field from MavenRepository. Metadata is now generated incrementally during repository version creation via finalize_new_version, making the separate publish step unnecessary.
+
+  **Action required:** Before upgrading, all MavenDistributions must be switched from pointing at a publication to pointing at a repository directly. Distributions still referencing a publication after the upgrade will stop serving content.
+  [#387](https://github.com/pulp/pulp_maven/issues/387)
+
+---
+
 ## 0.22.1 (2026-07-09) {: #0.22.1 }
 
 #### Bugfixes {: #0.22.1-bugfix }
