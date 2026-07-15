@@ -333,7 +333,7 @@ def test_metadata_removed_when_all_artifacts_removed(
     repo = maven_repo_api_client.read(repo.pulp_href)
 
     metadata_list = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
-    assert metadata_list.count == 4  # xml + 3 checksums
+    assert metadata_list.count == 5  # xml + 3 checksums + prefixes.txt
 
     # Remove the artifact
     monitor_task(
@@ -384,7 +384,7 @@ def test_deploy_api_generates_metadata(
 
     repo = maven_repo_api_client.read(repo.pulp_href)
     metadata_list = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
-    assert metadata_list.count == 4  # xml + 3 checksums
+    assert metadata_list.count == 5  # xml + 3 checksums + prefixes.txt
 
     metadata_url = urljoin(base_url, f"com/{uid}/deployed/maven-metadata.xml")
     downloaded = download_file(metadata_url)
@@ -433,9 +433,9 @@ def test_version_level_metadata_generated_for_snapshot(
     )
     repo = maven_repo_api_client.read(repo.pulp_href)
 
-    # 4 repo-level + 4 version-level = 8
+    # 4 repo-level + 4 version-level + prefixes.txt = 9
     metadata_list = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
-    assert metadata_list.count == 8
+    assert metadata_list.count == 9
 
     # Check version-level metadata XML
     ver_url = urljoin(base_url, f"com/{uid}/snaplib/1.0-SNAPSHOT/maven-metadata.xml")
@@ -483,11 +483,11 @@ def test_version_level_metadata_not_generated_for_release(
     )
     repo = maven_repo_api_client.read(repo.pulp_href)
 
-    # Only repo-level metadata: xml + 3 checksums = 4
+    # Only repo-level metadata: xml + 3 checksums + prefixes.txt = 5
     metadata_list = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
-    assert metadata_list.count == 4
+    assert metadata_list.count == 5
 
-    # All metadata should have version=None (repo-level)
+    # All metadata should have version=None (repo-level, plus prefixes.txt)
     for m in metadata_list.results:
         assert m.version is None
 
@@ -567,9 +567,9 @@ def test_version_level_metadata_removed_when_snapshot_removed(
     )
     repo = maven_repo_api_client.read(repo.pulp_href)
 
-    # 4 repo-level + 4 version-level = 8
+    # 4 repo-level + 4 version-level + prefixes.txt = 9
     metadata_list = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
-    assert metadata_list.count == 8
+    assert metadata_list.count == 9
 
     # Remove the SNAPSHOT artifact
     monitor_task(
@@ -577,9 +577,9 @@ def test_version_level_metadata_removed_when_snapshot_removed(
     )
     repo = maven_repo_api_client.read(repo.pulp_href)
 
-    # Only repo-level metadata should remain (4)
+    # Only repo-level metadata should remain (4 + prefixes.txt)
     metadata_list = maven_metadata_api_client.list(repository_version=repo.latest_version_href)
-    assert metadata_list.count == 4
+    assert metadata_list.count == 5
     for m in metadata_list.results:
         assert m.version is None
 

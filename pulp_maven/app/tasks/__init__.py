@@ -32,6 +32,73 @@ METADATA_FILENAMES = [
     "maven-metadata.xml.sha1",
     "maven-metadata.xml.sha256",
 ]
+PREFIXES_TXT_FILENAME = ".meta/prefixes.txt"
+
+
+def _compute_prefix(group_id):
+    """Return the repository prefix for a Maven group ID.
+
+    The prefix is the first two slash-separated segments of the group path,
+    or the full path if the group ID has fewer than two segments.
+
+    Examples:
+        com.fasterxml.jackson.core -> /com/fasterxml
+        com.springframework.boot   -> /com/springframework
+        commons-fileupload         -> /commons-fileupload
+    """
+    group_path = group_id.replace(".", "/")
+    segments = group_path.split("/")
+    if len(segments) >= 2:
+        return f"/{segments[0]}/{segments[1]}"
+    return f"/{group_path}"
+
+
+def _save_prefixes_txt(prefixes, pulp_domain):
+    """Build .meta/prefixes.txt content, save as MavenMetadata, return list of PKs."""
+    # This magic header is a format marker. First line MUST be exactly this string.
+    # Maven clients look for this exact string to confirm the file is a valid
+    # prefixes list (not an HTML error page, etc).
+    # "2.0" is the format version from the Sonatype spec.
+    # The "##" prefix means it's treated as a comment/header by parsers, not as
+    # a prefix entry.
+    lines = ["## repository-prefixes/2.0"] + sorted(prefixes)
+    content_bytes = ("\n".join(lines) + "\n").encode("utf-8")
+
+    artifact = _save_artifact(content_bytes, pulp_domain)
+
+    metadata_content = MavenMetadata(
+        group_id="",
+        artifact_id="",
+        version=None,
+        filename=PREFIXES_TXT_FILENAME,
+        sha256=artifact.sha256,
+        _pulp_domain=pulp_domain,
+    )
+
+    try:
+        with transaction.atomic():
+            metadata_content.save()
+    except IntegrityError:
+        metadata_content = MavenMetadata.objects.get(
+            group_id="",
+            artifact_id="",
+            version=None,
+            filename=PREFIXES_TXT_FILENAME,
+            sha256=artifact.sha256,
+            _pulp_domain=pulp_domain,
+        )
+
+    try:
+        with transaction.atomic():
+            ContentArtifact.objects.create(
+                artifact=artifact,
+                content=metadata_content,
+                relative_path=PREFIXES_TXT_FILENAME,
+            )
+    except IntegrityError:
+        pass
+
+    return [metadata_content.pk]
 
 
 def _save_artifact(content_bytes, pulp_domain):
@@ -129,8 +196,12 @@ def repair_metadata(repository_pk):
         pk__in=latest_version.content,
         filename__in=METADATA_FILENAMES,
     ).exists()
+    has_prefixes_txt = MavenMetadata.objects.filter(
+        pk__in=latest_version.content,
+        filename=PREFIXES_TXT_FILENAME,
+    ).exists()
 
-    if not all_pairs and not has_metadata:
+    if not all_pairs and not has_metadata and not has_prefixes_txt:
         return
 
     from pulp_maven.app.models import _pull_through_ctx
@@ -212,6 +283,29 @@ def repair_metadata(repository_pk):
             pks_to_add = new_pks - already_present
             if pks_to_add:
                 new_version.add_content(MavenMetadata.objects.filter(pk__in=pks_to_add))
+
+            # --- prefixes.txt ---
+            # Remove any existing prefixes.txt (may be stale or orphaned)
+            stale_prefixes_pks = list(
+                MavenMetadata.objects.filter(
+                    pk__in=new_version.content,
+                    filename=PREFIXES_TXT_FILENAME,
+                ).values_list("pk", flat=True)
+            )
+            if stale_prefixes_pks:
+                new_version.remove_content(MavenMetadata.objects.filter(pk__in=stale_prefixes_pks))
+
+            # Rebuild from all group_ids in the repository.
+            all_group_ids = {gid for gid, _ in all_pairs}
+            all_prefixes = {_compute_prefix(gid) for gid in all_group_ids}
+            if all_prefixes:
+                prefixes_pks = _save_prefixes_txt(all_prefixes, repository.pulp_domain)
+                already_present = set(
+                    new_version.content.filter(pk__in=prefixes_pks).values_list("pk", flat=True)
+                )
+                pks_to_add = set(prefixes_pks) - already_present
+                if pks_to_add:
+                    new_version.add_content(MavenMetadata.objects.filter(pk__in=pks_to_add))
     finally:
         _pull_through_ctx.active = False
 
