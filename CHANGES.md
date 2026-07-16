@@ -8,6 +8,17 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.24.0 (2026-07-15) {: #0.24.0 }
+
+#### Features {: #0.24.0-feature }
+
+- Added automatic generation of ``.meta/prefixes.txt`` for Maven repositories.
+  The file lists the top-level group ID prefixes available in the repository,
+  allowing Maven clients to efficiently determine which repositories to query.
+  [#399](https://github.com/pulp/pulp_maven/issues/399)
+
+---
+
 ## 0.23.0 (2026-07-14) {: #0.23.0 }
 
 #### Bugfixes {: #0.23.0-bugfix }
