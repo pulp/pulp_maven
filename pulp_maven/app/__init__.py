@@ -24,7 +24,7 @@ class PulpMavenPluginAppConfig(PulpPluginAppConfig):
 
 
 def _populate_maven_access_policies(sender, apps, verbosity, **kwargs):
-    from pulp_maven.app.simple.views import SimpleView
+    from pulp_maven.app.simple.views import MetadataView, SimpleView
 
     try:
         AccessPolicy = apps.get_model("core", "AccessPolicy")
@@ -33,7 +33,7 @@ def _populate_maven_access_policies(sender, apps, verbosity, **kwargs):
             print(_("AccessPolicy model does not exist. Skipping initialization."))
         return
 
-    for viewset in (SimpleView,):
+    for viewset in (SimpleView, MetadataView):
         access_policy = getattr(viewset, "DEFAULT_ACCESS_POLICY", None)
         if access_policy is not None:
             viewset_name = viewset.urlpattern()

@@ -1,7 +1,10 @@
 from urllib.parse import urljoin
 
+from pathlib import PurePath
+
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+
 from django.http.response import (
     Http404,
     StreamingHttpResponse,
@@ -16,6 +19,7 @@ from pulpcore.plugin.util import get_domain
 from pulp_maven.app.models import MavenArtifact, MavenDistribution
 from pulp_maven.app.simple.utils import (
     SERIAL_CONSTANT,
+    maven_content_to_json,
     write_simple_index,
     write_simple_index_json,
 )
@@ -127,4 +131,51 @@ class SimpleView(MavenMixin, ViewSet):
             return StreamingHttpResponse(
                 index_data, content_type=media_type, headers=headers
             )
+
+
+class MetadataView(MavenMixin, ViewSet):
+    """View for the Maven JSON metadata endpoint."""
+
+    endpoint_name = "maven"
+    DEFAULT_ACCESS_POLICY = {
+        "statements": [
+            {
+                "action": ["retrieve"],
+                "principal": "*",
+                "effect": "allow",
+            },
+        ],
+    }
+
+    def retrieve(self, request, path, meta):
+        """
+        Retrieves artifact metadata as JSON.
+        `meta` must be a path in form of `{group_id}:{artifact_id}/json/`
+        or `{group_id}:{artifact_id}/{version}/json/`
+        """
+        repo_version = self.get_repository_version(self.distribution)
+        content = self.get_content(repo_version)
+
+        meta_path = PurePath(meta)
+        package = None
+        version = None
+        if meta_path.match("*/*/json"):
+            package = meta_path.parts[0]
+            version = meta_path.parts[1]
+        elif meta_path.match("*/json"):
+            package = meta_path.parts[0]
+
+        if not package or ":" not in package:
+            return Response(status=404)
+
+        group_id, artifact_id = package.split(":", 1)
+        filtered = content.filter(group_id=group_id, artifact_id=artifact_id)
+
+        domain = get_domain() if settings.DOMAIN_ENABLED else None
+        json_body = maven_content_to_json(
+            self.distribution.base_path, filtered, version=version, domain=domain
+        )
+        if json_body:
+            return Response(data=json_body)
+        return Response(status=404)
 
