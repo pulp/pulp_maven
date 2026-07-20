@@ -42,7 +42,11 @@ def _populate_maven_access_policies(sender, apps, verbosity, **kwargs):
             )
             if created:
                 if verbosity >= 1:
-                    print(f"Access policy for {viewset_name} created.")
+                    print(
+                        "Access policy for {viewset_name} created.".format(
+                            viewset_name=viewset_name
+                        )
+                    )
             elif not db_access_policy.customized:
                 dirty = False
                 for key in ["statements", "creation_hooks", "queryset_scoping"]:
@@ -53,4 +57,8 @@ def _populate_maven_access_policies(sender, apps, verbosity, **kwargs):
                 if dirty:
                     db_access_policy.save()
                     if verbosity >= 1:
-                        print(f"Access policy for {viewset_name} updated.")
+                        print(
+                            "Access policy for {viewset_name} updated.".format(
+                                viewset_name=viewset_name
+                            )
+                        )

@@ -18,7 +18,8 @@ from pulpcore.plugin.util import get_domain
 from pulp_maven.app.models import MavenArtifact, MavenDistribution
 from pulp_maven.app.simple.serializers import MavenPackageMetadataSerializer
 from pulp_maven.app.simple.utils import (
-    SERIAL_CONSTANT,
+    MAVEN_LAST_SERIAL,
+    MAVEN_SERIAL_CONSTANT,
     maven_content_to_json,
     write_simple_index,
     write_simple_index_json,
@@ -41,6 +42,8 @@ class MavenSimpleJSONRenderer(JSONRenderer):
 
 
 class MavenMixin:
+    """Mixin to get index specific info."""
+
     _distro = None
 
     @property
@@ -55,6 +58,7 @@ class MavenMixin:
 
     @staticmethod
     def get_distribution(path):
+        """Finds the distribution associated with this base_path."""
         try:
             return MavenDistribution.objects.select_related(
                 "repository",
@@ -64,6 +68,7 @@ class MavenMixin:
 
     @staticmethod
     def get_repository_version(distribution):
+        """Finds the repository version this distribution is serving."""
         rep = distribution.repository
         if rep:
             return rep.latest_version()
@@ -71,9 +76,11 @@ class MavenMixin:
 
     @staticmethod
     def get_content(repository_version):
+        """Returns queryset of the content in this repository version."""
         return MavenArtifact.objects.filter(pk__in=repository_version.content)
 
     def initial(self, request, *args, **kwargs):
+        """Perform common initialization tasks for Maven endpoints."""
         super().initial(request, *args, **kwargs)
         domain_name = get_domain().name
         if settings.DOMAIN_ENABLED:
@@ -85,10 +92,13 @@ class MavenMixin:
 
     @classmethod
     def urlpattern(cls):
+        """Mocking NamedModelViewSet behavior to get APIs to support RBAC access polices."""
         return f"maven/{cls.endpoint_name}"
 
 
 class SimpleView(MavenMixin, ViewSet):
+    """View for the Maven simple API."""
+
     endpoint_name = "simple"
     DEFAULT_ACCESS_POLICY = {
         "statements": [
@@ -101,16 +111,23 @@ class SimpleView(MavenMixin, ViewSet):
     }
 
     def perform_content_negotiation(self, request, force=False):
+        """
+        Uses standard content negotiation, defaulting to HTML if no acceptable renderer is found.
+        """
         try:
             return super().perform_content_negotiation(request, force)
         except NotAcceptable:
             return TemplateHTMLRenderer(), TemplateHTMLRenderer.media_type
 
     def get_renderers(self):
+        """
+        Uses custom renderers for Maven Simple API endpoints.
+        """
         return [TemplateHTMLRenderer(), MavenSimpleHTMLRenderer(), MavenSimpleJSONRenderer()]
 
+    @extend_schema(summary="Get index simple page")
     def list(self, request, path):
-        """Gets the simple index page listing all group_id:artifact_id projects."""
+        """Gets the simple api page listing all group_id:artifact_id projects."""
         repo_version = self.get_repository_version(self.distribution)
         content = self.get_content(repo_version)
 
@@ -122,13 +139,14 @@ class SimpleView(MavenMixin, ViewSet):
         project_names = [f"{g}:{a}" for g, a in projects.iterator()]
 
         media_type = request.accepted_renderer.media_type
-        headers = {"X-PyPI-Last-Serial": str(SERIAL_CONSTANT)}
+        headers = {MAVEN_LAST_SERIAL: str(MAVEN_SERIAL_CONSTANT)}
 
         if media_type == MAVEN_SIMPLE_V1_JSON:
             return Response(write_simple_index_json(project_names), headers=headers)
         else:
             index_data = write_simple_index(project_names, streamed=True)
-            return StreamingHttpResponse(index_data, content_type=media_type, headers=headers)
+            kwargs = {"content_type": media_type, "headers": headers}
+            return StreamingHttpResponse(index_data, **kwargs)
 
 
 class MetadataView(MavenMixin, ViewSet):
@@ -175,9 +193,10 @@ class MetadataView(MavenMixin, ViewSet):
         filtered = content.filter(group_id=group_id, artifact_id=artifact_id)
 
         domain = get_domain() if settings.DOMAIN_ENABLED else None
+        headers = {MAVEN_LAST_SERIAL: str(MAVEN_SERIAL_CONSTANT)}
         json_body = maven_content_to_json(
             self.distribution.base_path, filtered, version=version, domain=domain
         )
         if json_body:
-            return Response(data=json_body)
+            return Response(data=json_body, headers=headers)
         return Response(status=404)
