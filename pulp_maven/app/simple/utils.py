@@ -79,7 +79,7 @@ def maven_content_to_info(group_id, artifact_id, version):
 
 def maven_content_to_releases(content_query, base_path, domain=None):
     releases = defaultdict(list)
-    for artifact in content_query.iterator():
+    for artifact in content_query:
         releases[artifact.version].append(
             maven_content_to_download_info(artifact, base_path, domain)
         )
