@@ -1,10 +1,8 @@
-from urllib.parse import urljoin
-
 from pathlib import PurePath
+from urllib.parse import urljoin
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
-
 from django.http.response import (
     Http404,
     StreamingHttpResponse,
