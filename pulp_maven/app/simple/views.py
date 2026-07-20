@@ -9,6 +9,7 @@ from django.http.response import (
     Http404,
     StreamingHttpResponse,
 )
+from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import NotAcceptable
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.response import Response
@@ -17,6 +18,7 @@ from rest_framework.viewsets import ViewSet
 from pulpcore.plugin.util import get_domain
 
 from pulp_maven.app.models import MavenArtifact, MavenDistribution
+from pulp_maven.app.simple.serializers import MavenPackageMetadataSerializer
 from pulp_maven.app.simple.utils import (
     SERIAL_CONSTANT,
     maven_content_to_json,
@@ -147,6 +149,11 @@ class MetadataView(MavenMixin, ViewSet):
         ],
     }
 
+    @extend_schema(
+        tags=["Maven: Metadata"],
+        responses={200: MavenPackageMetadataSerializer},
+        summary="Get artifact metadata",
+    )
     def retrieve(self, request, path, meta):
         """
         Retrieves artifact metadata as JSON.
