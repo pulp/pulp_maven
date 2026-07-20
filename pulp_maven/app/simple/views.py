@@ -130,9 +130,7 @@ class SimpleView(MavenMixin, ViewSet):
             return Response(write_simple_index_json(project_names), headers=headers)
         else:
             index_data = write_simple_index(project_names, streamed=True)
-            return StreamingHttpResponse(
-                index_data, content_type=media_type, headers=headers
-            )
+            return StreamingHttpResponse(index_data, content_type=media_type, headers=headers)
 
 
 class MetadataView(MavenMixin, ViewSet):
@@ -185,4 +183,3 @@ class MetadataView(MavenMixin, ViewSet):
         if json_body:
             return Response(data=json_body)
         return Response(status=404)
-

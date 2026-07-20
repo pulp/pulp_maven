@@ -20,6 +20,7 @@ simple_index_template = """<!DOCTYPE html>
 </html>
 """
 
+
 def write_simple_index(project_names, streamed=False):
     simple = Template(simple_index_template)
     context = {
@@ -57,9 +58,7 @@ def maven_content_to_json(base_path, content_query, version=None, domain=None):
         "last_serial": 0,
         "info": maven_content_to_info(first.group_id, first.artifact_id, latest_version),
         "releases": maven_content_to_releases(content_query, base_path, domain),
-        "urls": [
-            maven_content_to_download_info(a, base_path, domain) for a in latest_content
-        ],
+        "urls": [maven_content_to_download_info(a, base_path, domain) for a in latest_content],
     }
 
 
