@@ -53,7 +53,7 @@ def _collect_properties(root):
         "project.url": _findtext(root, "url"),
     }
     for key, value in implicit.items():
-        if value:
+        if value and key not in props:
             props[key] = value
 
     return props
