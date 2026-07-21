@@ -169,6 +169,56 @@ class MavenMetadata(MavenContentMixin, Content):
         )
 
 
+class MavenPackage(Content):
+    """
+    A logical Maven package at the GAV (groupId, artifactId, version) level.
+
+    Groups MavenArtifact files that share the same GAV coordinates.
+    Auto-created by finalize_new_version; not directly user-creatable.
+    """
+
+    TYPE = "package"
+    repo_key_fields = ("group_id", "artifact_id", "version")
+
+    _pulp_domain = models.ForeignKey("core.Domain", default=get_domain_pk, on_delete=models.PROTECT)
+    group_id = models.CharField(max_length=255, null=False)
+    artifact_id = models.CharField(max_length=255, null=False)
+    version = models.CharField(max_length=255, null=False)
+
+    name = models.TextField(null=True)
+    description = models.TextField(null=True)
+    packaging = models.CharField(max_length=64, null=True)
+    url = models.CharField(max_length=2048, null=True)
+    licenses = models.JSONField(null=True)
+    dependencies = models.JSONField(null=True)
+    scm_url = models.CharField(max_length=2048, null=True)
+
+    class Meta:
+        default_related_name = "%(app_label)s_%(model_name)s"
+        unique_together = ("group_id", "artifact_id", "version", "_pulp_domain")
+
+    def update_from_pom(self, artifact):
+        """Parse POM XML from an artifact file and populate metadata fields."""
+        from pulp_maven.app.pom import parse_pom_metadata
+
+        try:
+            with artifact.file.open("rb") as f:
+                meta = parse_pom_metadata(f)
+        except Exception:
+            return
+
+        if meta is None:
+            return
+
+        self.name = meta["name"]
+        self.description = meta["description"]
+        self.packaging = meta["packaging"]
+        self.url = meta["url"]
+        self.licenses = meta["licenses"]
+        self.dependencies = meta["dependencies"]
+        self.scm_url = meta["scm_url"]
+
+
 class MavenRemote(Remote):
     """
     A Remote for MavenArtifact.
@@ -225,7 +275,7 @@ class MavenRepository(Repository):
     """
 
     TYPE = "maven"
-    CONTENT_TYPES = [MavenArtifact, MavenMetadata]
+    CONTENT_TYPES = [MavenArtifact, MavenMetadata, MavenPackage]
     REMOTE_TYPES = [MavenRemote]
     PULL_THROUGH_SUPPORTED = True
 
@@ -284,10 +334,82 @@ class MavenRepository(Repository):
         )
 
     def finalize_new_version(self, new_version):
-        """Remove duplicates and generate metadata for affected artifacts."""
+        """Remove duplicates, ensure packages, and generate metadata."""
         remove_duplicates(new_version)
+        self._ensure_packages(new_version)
         if not getattr(_pull_through_ctx, "active", False):
             self._generate_metadata(new_version)
+
+    def _ensure_packages(self, new_version):
+        """Create or update MavenPackage content for affected GAVs."""
+        from django.db.models import Q
+
+        from pulpcore.plugin.models import ContentArtifact
+
+        affected_gavs = set()
+        for qs in (
+            MavenArtifact.objects.filter(pk__in=new_version.added()),
+            MavenArtifact.objects.filter(pk__in=new_version.removed()),
+        ):
+            for vals in qs.values("group_id", "artifact_id", "version").distinct().iterator():
+                affected_gavs.add((vals["group_id"], vals["artifact_id"], vals["version"]))
+
+        if not affected_gavs:
+            return
+
+        gavs_q = Q()
+        for g, a, v in affected_gavs:
+            gavs_q |= Q(group_id=g, artifact_id=a, version=v)
+
+        live_gavs = set(
+            MavenArtifact.objects.filter(pk__in=new_version.content)
+            .filter(gavs_q)
+            .values_list("group_id", "artifact_id", "version")
+            .distinct()
+        )
+
+        package_pks_to_add = []
+        for group_id, artifact_id, version in live_gavs:
+            pkg, created = MavenPackage.objects.get_or_create(
+                group_id=group_id,
+                artifact_id=artifact_id,
+                version=version,
+                _pulp_domain=self.pulp_domain,
+            )
+
+            if created or not pkg.name:
+                pom_ca = (
+                    ContentArtifact.objects.filter(
+                        content__in=MavenArtifact.objects.filter(
+                            pk__in=new_version.content,
+                            group_id=group_id,
+                            artifact_id=artifact_id,
+                            version=version,
+                            filename=f"{artifact_id}-{version}.pom",
+                        ),
+                    )
+                    .select_related("artifact")
+                    .first()
+                )
+
+                if pom_ca and pom_ca.artifact:
+                    pkg.update_from_pom(pom_ca.artifact)
+                    pkg.save()
+
+            package_pks_to_add.append(pkg.pk)
+
+        if package_pks_to_add:
+            new_version.add_content(MavenPackage.objects.filter(pk__in=package_pks_to_add))
+
+        dead_gavs = affected_gavs - live_gavs
+        if dead_gavs:
+            dead_q = Q()
+            for g, a, v in dead_gavs:
+                dead_q |= Q(group_id=g, artifact_id=a, version=v)
+            dead_pkgs = MavenPackage.objects.filter(
+                pk__in=new_version.content, _pulp_domain=self.pulp_domain
+            ).filter(dead_q)
+            new_version.remove_content(dead_pkgs)
 
     def _generate_metadata(self, new_version):
         """Generate maven-metadata.xml and checksums for affected (group_id, artifact_id) pairs."""
