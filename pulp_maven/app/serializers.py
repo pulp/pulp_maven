@@ -219,6 +219,52 @@ class MavenMetadataUploadSerializer(MavenMetadataSerializer):
         ref_name = "MavenMetadataUploadSerializer"
 
 
+class MavenPackageSerializer(platform.NoArtifactContentSerializer):
+    """
+    A read-only Serializer for MavenPackage.
+    """
+
+    group_id = serializers.CharField(help_text=_("Group Id of the package."), read_only=True)
+    artifact_id = serializers.CharField(help_text=_("Artifact Id of the package."), read_only=True)
+    version = serializers.CharField(help_text=_("Version of the package."), read_only=True)
+    name = serializers.CharField(
+        help_text=_("Human-readable name from the POM."), read_only=True, allow_null=True
+    )
+    description = serializers.CharField(
+        help_text=_("Description from the POM."), read_only=True, allow_null=True
+    )
+    packaging = serializers.CharField(
+        help_text=_("Packaging type (jar, war, pom, etc)."), read_only=True, allow_null=True
+    )
+    url = serializers.CharField(
+        help_text=_("Project URL from the POM."), read_only=True, allow_null=True
+    )
+    licenses = serializers.JSONField(
+        help_text=_("License information from the POM."), read_only=True
+    )
+    dependencies = serializers.JSONField(
+        help_text=_("Dependency list from the POM."), read_only=True
+    )
+    scm_url = serializers.CharField(
+        help_text=_("Source control URL from the POM."), read_only=True, allow_null=True
+    )
+
+    class Meta:
+        fields = platform.NoArtifactContentSerializer.Meta.fields + (
+            "group_id",
+            "artifact_id",
+            "version",
+            "name",
+            "description",
+            "packaging",
+            "url",
+            "licenses",
+            "dependencies",
+            "scm_url",
+        )
+        model = models.MavenPackage
+
+
 class MavenRemoteSerializer(platform.RemoteSerializer):
     """
     A Serializer for MavenRemote.

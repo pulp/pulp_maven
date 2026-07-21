@@ -11,6 +11,7 @@ from pulpcore.plugin.viewsets import (
     ContentFilter,
     DistributionViewSet,
     OperationPostponedResponse,
+    ReadOnlyContentViewSet,
     RemoteViewSet,
     RepositoryVersionViewSet,
     RepositoryViewSet,
@@ -21,6 +22,7 @@ from pulp_maven.app.models import (
     MavenArtifact,
     MavenDistribution,
     MavenMetadata,
+    MavenPackage,
     MavenRemote,
     MavenRepository,
 )
@@ -30,6 +32,7 @@ from pulp_maven.app.serializers import (
     MavenDistributionSerializer,
     MavenMetadataSerializer,
     MavenMetadataUploadSerializer,
+    MavenPackageSerializer,
     MavenRemoteSerializer,
     MavenRepositorySerializer,
     RepositoryAddCachedContentSerializer,
@@ -111,6 +114,31 @@ class MavenMetadataViewSet(SingleArtifactContentUploadViewSet):
 
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+
+class MavenPackageFilter(ContentFilter):
+    """
+    FilterSet for MavenPackage.
+    """
+
+    class Meta:
+        model = MavenPackage
+        fields = ["group_id", "artifact_id", "version", "name", "packaging"]
+
+
+class MavenPackageViewSet(ReadOnlyContentViewSet):
+    """
+    A read-only ViewSet for MavenPackage.
+
+    MavenPackage represents a logical Maven package at the GAV (groupId,
+    artifactId, version) level. Packages are automatically created when
+    artifacts are added to a repository.
+    """
+
+    endpoint_name = "package"
+    queryset = MavenPackage.objects.all()
+    serializer_class = MavenPackageSerializer
+    filterset_class = MavenPackageFilter
 
 
 class MavenRemoteViewSet(RemoteViewSet):
