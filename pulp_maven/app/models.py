@@ -6,7 +6,13 @@ from os import path
 
 from django.db import models
 
-from pulpcore.plugin.models import Content, Distribution, Remote, Repository
+from pulpcore.plugin.models import (
+    AutoAddObjPermsMixin,
+    Content,
+    Distribution,
+    Remote,
+    Repository,
+)
 from pulpcore.plugin.repo_version_utils import remove_duplicates
 from pulpcore.plugin.util import get_domain_pk
 
@@ -222,7 +228,7 @@ class MavenPackage(Content):
         self.scm_url = meta["scm_url"]
 
 
-class MavenRemote(Remote):
+class MavenRemote(Remote, AutoAddObjPermsMixin):
     """
     A Remote for MavenArtifact.
 
@@ -259,9 +265,12 @@ class MavenRemote(Remote):
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
+        permissions = [  # noqa: RUF012
+            ("manage_roles_mavenremote", "Can manage roles on Maven remote"),
+        ]
 
 
-class MavenDistribution(Distribution):
+class MavenDistribution(Distribution, AutoAddObjPermsMixin):
     """
     Distribution for 'maven' content.
     """
@@ -270,16 +279,19 @@ class MavenDistribution(Distribution):
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
+        permissions = [  # noqa: RUF012
+            ("manage_roles_mavendistribution", "Can manage roles on Maven distribution"),
+        ]
 
 
-class MavenRepository(Repository):
+class MavenRepository(Repository, AutoAddObjPermsMixin):
     """
     Repository for "maven" content.
     """
 
     TYPE = "maven"
-    CONTENT_TYPES = [MavenArtifact, MavenMetadata, MavenPackage]
-    REMOTE_TYPES = [MavenRemote]
+    CONTENT_TYPES = [MavenArtifact, MavenMetadata, MavenPackage]  # noqa: RUF012
+    REMOTE_TYPES = [MavenRemote]  # noqa: RUF012
     PULL_THROUGH_SUPPORTED = True
 
     def pull_through_add_content(self, content_artifact):
@@ -602,3 +614,8 @@ class MavenRepository(Repository):
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
+        permissions = [  # noqa: RUF012
+            ("modify_mavenrepository", "Can modify content in Maven repository"),
+            ("manage_roles_mavenrepository", "Can manage roles on Maven repository"),
+            ("repair_mavenrepository", "Can repair Maven repository metadata"),
+        ]
