@@ -18,6 +18,7 @@ from pulp_maven.app.models import (
     MavenArtifact,
     MavenDistribution,
     MavenMetadata,
+    MavenPackage,
     MavenRepository,
 )
 from pulp_maven.app.tasks import aadd_and_remove
@@ -188,6 +189,18 @@ class MavenApiViewSet(APIView):
             remove_content_units = []
 
         add_content_units = [str(content.pk)]
+
+        if not is_metadata and content.filename.endswith(".pom"):
+            pkg, created = MavenPackage.objects.get_or_create(
+                group_id=content.group_id,
+                artifact_id=content.artifact_id,
+                version=content.version,
+                _pulp_domain=get_domain(),
+            )
+            if created:
+                pkg.update_from_pom(artifact)
+                pkg.save()
+            add_content_units.append(str(pkg.pk))
 
         dispatched_task = dispatch(
             aadd_and_remove,
