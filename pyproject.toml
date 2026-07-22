@@ -23,7 +23,7 @@ classifiers=[
 ]
 requires-python = ">=3.11"
 dependencies = [
-  "pulpcore>=3.108.0,<3.115",
+  "pulpcore>=3.108.0,<3.130",
   "defusedxml>=0.7,<1.0",
 ]
 
