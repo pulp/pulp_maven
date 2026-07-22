@@ -8,7 +8,6 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("core", "0151_upstreampulp_connect_timeout_and_more"),
         ("maven", "0009_remove_publications"),
     ]
 

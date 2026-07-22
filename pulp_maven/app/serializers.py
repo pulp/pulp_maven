@@ -55,7 +55,21 @@ class MavenArtifactSerializer(platform.SingleArtifactContentUploadSerializer):
         validated_data["artifact_id"] = artifact_id
         validated_data["version"] = version
         validated_data["filename"] = filename
-        return super().create(validated_data)
+        artifact = validated_data.get("artifact")
+        content = super().create(validated_data)
+
+        if filename.endswith(".pom") and artifact:
+            pkg, created = models.MavenPackage.objects.get_or_create(
+                group_id=group_id,
+                artifact_id=artifact_id,
+                version=version,
+                _pulp_domain_id=get_domain_pk(),
+            )
+            if created:
+                pkg.update_from_pom(artifact)
+                pkg.save()
+
+        return content
 
     class Meta:
         fields = platform.SingleArtifactContentUploadSerializer.Meta.fields + (

@@ -174,7 +174,9 @@ class MavenPackage(Content):
     A logical Maven package at the GAV (groupId, artifactId, version) level.
 
     Groups MavenArtifact files that share the same GAV coordinates.
-    Auto-created by finalize_new_version; not directly user-creatable.
+    Created when a ``.pom`` file is saved (deploy API, REST upload) with
+    ``finalize_new_version`` as a fallback for pull-through cache.
+    Strictly immutable once created — metadata is populated once from the POM.
     """
 
     TYPE = "package"
@@ -341,7 +343,7 @@ class MavenRepository(Repository):
             self._generate_metadata(new_version)
 
     def _ensure_packages(self, new_version):
-        """Create or update MavenPackage content for affected GAVs."""
+        """Manage MavenPackage version membership and create packages as a pull-through fallback."""
         from django.db.models import Q
 
         from pulpcore.plugin.models import ContentArtifact
@@ -370,31 +372,43 @@ class MavenRepository(Repository):
 
         package_pks_to_add = []
         for group_id, artifact_id, version in live_gavs:
+            pkg = MavenPackage.objects.filter(
+                group_id=group_id,
+                artifact_id=artifact_id,
+                version=version,
+                _pulp_domain=self.pulp_domain,
+            ).first()
+
+            if pkg:
+                package_pks_to_add.append(pkg.pk)
+                continue
+
+            pom_ca = (
+                ContentArtifact.objects.filter(
+                    content__in=MavenArtifact.objects.filter(
+                        pk__in=new_version.content,
+                        group_id=group_id,
+                        artifact_id=artifact_id,
+                        version=version,
+                        filename=f"{artifact_id}-{version}.pom",
+                    ),
+                )
+                .select_related("artifact")
+                .first()
+            )
+
+            if not pom_ca or not pom_ca.artifact:
+                continue
+
             pkg, created = MavenPackage.objects.get_or_create(
                 group_id=group_id,
                 artifact_id=artifact_id,
                 version=version,
                 _pulp_domain=self.pulp_domain,
             )
-
-            if created or not pkg.name:
-                pom_ca = (
-                    ContentArtifact.objects.filter(
-                        content__in=MavenArtifact.objects.filter(
-                            pk__in=new_version.content,
-                            group_id=group_id,
-                            artifact_id=artifact_id,
-                            version=version,
-                            filename=f"{artifact_id}-{version}.pom",
-                        ),
-                    )
-                    .select_related("artifact")
-                    .first()
-                )
-
-                if pom_ca and pom_ca.artifact:
-                    pkg.update_from_pom(pom_ca.artifact)
-                    pkg.save()
+            if created:
+                pkg.update_from_pom(pom_ca.artifact)
+                pkg.save()
 
             package_pks_to_add.append(pkg.pk)
 
