@@ -407,15 +407,22 @@ def test_partial_removal_keeps_package(
     assert packages.count == 0
 
 
-def test_pullthrough_pom_creates_package(
+def test_pullthrough_pom_no_package_until_modify(
+    maven_artifact_api_client,
     maven_distribution_factory,
     maven_remote_factory,
     maven_repo_factory,
     maven_package_api_client,
     maven_repo_api_client,
     distribution_base_url,
+    monitor_task,
 ):
-    """Pull a .pom through cache and verify a MavenPackage appears in the repo version."""
+    """Pull-through skips _ensure_packages; package appears only after a modify() adds new content.
+
+    Pull-through caching deliberately skips package creation and metadata generation
+    for performance. Verify that: (1) no package exists after pullthrough, and
+    (2) adding new content for the same GAV triggers _ensure_packages and creates the package.
+    """
     remote = maven_remote_factory(url="https://repo1.maven.org/maven2/")
     repository = maven_repo_factory(remote=remote.pulp_href)
     distribution = maven_distribution_factory(
@@ -436,6 +443,39 @@ def test_pullthrough_pom_creates_package(
 
     packages = maven_package_api_client.list(
         repository_version=repository.latest_version_href,
+    )
+    assert packages.count == 0, "Pull-through should not create MavenPackage"
+
+    # Now pull another artifact for the same GAV — a .jar.sha1.
+    # This triggers a new version via add_cached_content, but pull-through still
+    # skips _ensure_packages. Upload a new artifact via modify() to trigger it.
+    jar_sha1_path = "academy/alex/custommatcher/1.0/custommatcher-1.0.jar.sha1"
+    jar_sha1_url = urljoin(distribution_base_url(distribution.base_url), jar_sha1_path)
+    download_file(jar_sha1_url)
+
+    for _ in range(30):
+        repo_now = maven_repo_api_client.read(repository.pulp_href)
+        if repo_now.latest_version_href != repository.latest_version_href:
+            repository = repo_now
+            break
+        time.sleep(1)
+
+    # Trigger _ensure_packages by adding the cached artifacts to a fresh repo
+    second_repo = maven_repo_factory()
+    artifacts = maven_artifact_api_client.list(
+        repository_version=repository.latest_version_href,
+    )
+    assert artifacts.count > 0
+    hrefs = [a.pulp_href for a in artifacts.results]
+    monitor_task(
+        maven_repo_api_client.modify(
+            second_repo.pulp_href, {"add_content_units": hrefs}
+        ).task
+    )
+
+    second_repo = maven_repo_api_client.read(second_repo.pulp_href)
+    packages = maven_package_api_client.list(
+        repository_version=second_repo.latest_version_href,
         group_id="academy.alex",
         artifact_id="custommatcher",
     )
