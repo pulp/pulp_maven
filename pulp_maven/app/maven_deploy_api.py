@@ -197,10 +197,9 @@ class MavenApiViewSet(APIView):
                 version=content.version,
                 _pulp_domain=get_domain(),
             )
-            if created:
+            if created or content.version.endswith("-SNAPSHOT"):
                 pkg.update_from_pom(artifact)
                 pkg.save()
-            add_content_units.append(str(pkg.pk))
 
         dispatched_task = dispatch(
             aadd_and_remove,
