@@ -468,9 +468,7 @@ def test_pullthrough_pom_no_package_until_modify(
     assert artifacts.count > 0
     hrefs = [a.pulp_href for a in artifacts.results]
     monitor_task(
-        maven_repo_api_client.modify(
-            second_repo.pulp_href, {"add_content_units": hrefs}
-        ).task
+        maven_repo_api_client.modify(second_repo.pulp_href, {"add_content_units": hrefs}).task
     )
 
     second_repo = maven_repo_api_client.read(second_repo.pulp_href)
