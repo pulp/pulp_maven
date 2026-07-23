@@ -339,8 +339,8 @@ class MavenRepository(Repository):
     def finalize_new_version(self, new_version):
         """Remove duplicates, ensure packages, and generate metadata."""
         remove_duplicates(new_version)
-        self._ensure_packages(new_version)
         if not getattr(_pull_through_ctx, "active", False):
+            self._ensure_packages(new_version)
             self._generate_metadata(new_version)
 
     def _ensure_packages(self, new_version):
