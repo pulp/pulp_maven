@@ -65,7 +65,7 @@ class MavenArtifactSerializer(platform.SingleArtifactContentUploadSerializer):
                 version=version,
                 _pulp_domain_id=get_domain_pk(),
             )
-            if created:
+            if created or version.endswith("-SNAPSHOT"):
                 pkg.update_from_pom(artifact)
                 pkg.save()
 

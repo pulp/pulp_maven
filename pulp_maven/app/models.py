@@ -207,6 +207,7 @@ class MavenPackage(Content):
             with artifact.file.open("rb") as f:
                 meta = parse_pom_metadata(f)
         except Exception:
+            logger.warning("Failed to parse POM metadata from %s", artifact.file.name)
             return
 
         if meta is None:
@@ -370,46 +371,65 @@ class MavenRepository(Repository):
             .distinct()
         )
 
-        package_pks_to_add = []
-        for group_id, artifact_id, version in live_gavs:
-            pkg = MavenPackage.objects.filter(
-                group_id=group_id,
-                artifact_id=artifact_id,
-                version=version,
-                _pulp_domain=self.pulp_domain,
-            ).first()
+        existing_pkgs = {
+            (p.group_id, p.artifact_id, p.version): p
+            for p in MavenPackage.objects.filter(gavs_q, _pulp_domain=self.pulp_domain)
+        }
 
-            if pkg:
+        gavs_needing_pom = {
+            gav for gav in live_gavs if gav not in existing_pkgs or gav[2].endswith("-SNAPSHOT")
+        }
+
+        pom_cas = {}
+        if gavs_needing_pom:
+            pom_q = Q()
+            for g, a, v in gavs_needing_pom:
+                pom_q |= Q(
+                    group_id=g,
+                    artifact_id=a,
+                    version=v,
+                    filename=f"{a}-{v}.pom",
+                )
+            pom_content_to_gav = {}
+            for ma in (
+                MavenArtifact.objects.filter(pk__in=new_version.content).filter(pom_q).iterator()
+            ):
+                pom_content_to_gav[ma.pk] = (
+                    ma.group_id,
+                    ma.artifact_id,
+                    ma.version,
+                )
+            for ca in (
+                ContentArtifact.objects.filter(content_id__in=pom_content_to_gav.keys())
+                .select_related("artifact")
+                .iterator()
+            ):
+                gav = pom_content_to_gav.get(ca.content_id)
+                if gav and ca.artifact:
+                    pom_cas[gav] = ca
+
+        package_pks_to_add = []
+        for gav in live_gavs:
+            pkg = existing_pkgs.get(gav)
+            if pkg and gav not in gavs_needing_pom:
                 package_pks_to_add.append(pkg.pk)
                 continue
 
-            pom_ca = (
-                ContentArtifact.objects.filter(
-                    content__in=MavenArtifact.objects.filter(
-                        pk__in=new_version.content,
-                        group_id=group_id,
-                        artifact_id=artifact_id,
-                        version=version,
-                        filename=f"{artifact_id}-{version}.pom",
-                    ),
-                )
-                .select_related("artifact")
-                .first()
-            )
-
-            if not pom_ca or not pom_ca.artifact:
+            ca = pom_cas.get(gav)
+            if not ca:
+                if pkg:
+                    package_pks_to_add.append(pkg.pk)
                 continue
 
             pkg, created = MavenPackage.objects.get_or_create(
-                group_id=group_id,
-                artifact_id=artifact_id,
-                version=version,
+                group_id=gav[0],
+                artifact_id=gav[1],
+                version=gav[2],
                 _pulp_domain=self.pulp_domain,
             )
-            if created:
-                pkg.update_from_pom(pom_ca.artifact)
+            if created or gav[2].endswith("-SNAPSHOT"):
+                pkg.update_from_pom(ca.artifact)
                 pkg.save()
-
             package_pks_to_add.append(pkg.pk)
 
         if package_pks_to_add:

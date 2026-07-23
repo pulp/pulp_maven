@@ -7,6 +7,7 @@ def create_packages_from_poms(apps, schema_editor):
     Packages are created globally but NOT added to repository versions.
     They will appear in repo versions on the next finalize_new_version call.
     """
+    # Intentional import of app code: parse_pom_metadata is a pure function with no model deps.
     from pulp_maven.app.pom import parse_pom_metadata
 
     MavenArtifact = apps.get_model("maven", "MavenArtifact")
@@ -19,7 +20,7 @@ def create_packages_from_poms(apps, schema_editor):
         .distinct()
     )
 
-    for gav in pom_gavs:
+    for gav in pom_gavs.iterator(chunk_size=500):
         pkg, created = MavenPackage.objects.get_or_create(
             group_id=gav["group_id"],
             artifact_id=gav["artifact_id"],
