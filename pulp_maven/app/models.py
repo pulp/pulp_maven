@@ -176,7 +176,7 @@ class MavenPackage(Content):
     Groups MavenArtifact files that share the same GAV coordinates.
     Created when a ``.pom`` file is saved (deploy API, REST upload) with
     ``finalize_new_version`` as a fallback for pull-through cache.
-    Strictly immutable once created — metadata is populated once from the POM.
+    SNAPSHOT versions are mutable — metadata is refreshed on each POM upload.
     """
 
     TYPE = "package"
