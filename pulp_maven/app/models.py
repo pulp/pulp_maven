@@ -174,8 +174,8 @@ class MavenPackage(Content):
     A logical Maven package at the GAV (groupId, artifactId, version) level.
 
     Groups MavenArtifact files that share the same GAV coordinates.
-    Created when a ``.pom`` file is saved (deploy API, REST upload) with
-    ``finalize_new_version`` as a fallback for pull-through cache.
+    Created when a ``.pom`` file is saved (deploy API, REST upload).
+    ``finalize_new_version`` creates missing packages as a fallback when a POM is available.
     SNAPSHOT versions are mutable — metadata is refreshed on each POM upload.
     """
 
@@ -344,7 +344,7 @@ class MavenRepository(Repository):
             self._generate_metadata(new_version)
 
     def _ensure_packages(self, new_version):
-        """Manage MavenPackage version membership and create packages as a pull-through fallback."""
+        """Manage MavenPackage version membership. Creates missing packages when a POM is available."""
         from django.db.models import Q
 
         from pulpcore.plugin.models import ContentArtifact
