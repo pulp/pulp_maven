@@ -212,7 +212,7 @@ class MavenPackage(Content):
         try:
             with artifact.file.open("rb") as f:
                 meta = parse_pom_metadata(f)
-        except Exception:
+        except (OSError, ValueError, KeyError):
             logger.warning("Failed to parse POM metadata from %s", artifact.file.name)
             return
 

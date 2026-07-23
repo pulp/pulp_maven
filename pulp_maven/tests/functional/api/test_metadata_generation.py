@@ -375,9 +375,11 @@ def test_deploy_api_generates_metadata(
     jar_content = b"fake jar content for metadata gen test"
 
     async def _put(url, data):
-        async with aiohttp.ClientSession(raise_for_status=True) as session:
-            async with session.put(url, data=data, verify_ssl=False) as resp:
-                return resp.status
+        async with (
+            aiohttp.ClientSession(raise_for_status=True) as session,
+            session.put(url, data=data, verify_ssl=False) as resp,
+        ):
+            return resp.status
 
     status = asyncio.run(_put(f"{deploy_prefix}/{jar_path}", jar_content))
     assert status == 201

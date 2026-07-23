@@ -9,7 +9,7 @@ import pytest
 from pulpcore.client.pulp_maven.exceptions import ApiException
 
 django.setup()
-from pulp_maven.app.serializers import MavenRemoteSerializer  # noqa
+from pulp_maven.app.serializers import MavenRemoteSerializer
 
 
 @pytest.mark.parallel

@@ -86,7 +86,7 @@ def parse_pom_metadata(file_obj):
     try:
         tree = ET.parse(file_obj)
         root = tree.getroot()
-    except (ET.ParseError, Exception):
+    except ET.ParseError:
         return None
 
     props = _collect_properties(root)

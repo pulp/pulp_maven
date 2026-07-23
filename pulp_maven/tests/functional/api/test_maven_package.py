@@ -328,8 +328,7 @@ def test_mvn_deploy_creates_package(
             ["mvn", "deploy"],
             cwd=f"{tmp_path}/simple-project",
             check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
         )
     except subprocess.CalledProcessError as e:
         msg = e.stdout.decode() + e.stderr.decode()

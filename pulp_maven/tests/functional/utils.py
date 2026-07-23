@@ -1,4 +1,3 @@
-# coding=utf-8
 """Utilities for tests for the maven plugin."""
 
 import asyncio
@@ -31,6 +30,8 @@ def download_file(url, auth=None, headers=None):
 
 
 async def _download_file(url, auth=None, headers=None):
-    async with aiohttp.ClientSession(auth=auth, raise_for_status=True) as session:
-        async with session.get(url, verify_ssl=False, headers=headers) as response:
-            return Download(body=await response.read(), response_obj=response)
+    async with (
+        aiohttp.ClientSession(auth=auth, raise_for_status=True) as session,
+        session.get(url, verify_ssl=False, headers=headers) as response,
+    ):
+        return Download(body=await response.read(), response_obj=response)
