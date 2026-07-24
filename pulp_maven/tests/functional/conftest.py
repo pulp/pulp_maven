@@ -11,6 +11,7 @@ from pulpcore.client.pulp_maven import (
     RemotesMavenApi,
     RepositoriesMavenApi,
 )
+from pulpcore.tests.functional.utils import BindingsNamespace
 
 
 @pytest.fixture(scope="session")
@@ -18,6 +19,17 @@ def maven_client(_api_client_set, bindings_cfg):
     api_client = ApiClient(bindings_cfg)
     _api_client_set.add(api_client)
     yield api_client
+    _api_client_set.remove(api_client)
+
+
+@pytest.fixture(scope="session")
+def maven_bindings(_api_client_set, bindings_cfg):
+    """A namespace providing preconfigured pulp_maven API clients."""
+    from pulpcore.client import pulp_maven as maven_bindings_module
+
+    api_client = maven_bindings_module.ApiClient(bindings_cfg)
+    _api_client_set.add(api_client)
+    yield BindingsNamespace(maven_bindings_module, api_client)
     _api_client_set.remove(api_client)
 
 

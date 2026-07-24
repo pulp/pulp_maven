@@ -156,7 +156,7 @@ def add_cached_content_to_repository(repository_pk=None, remote_pk=None):
     latest_version = repository.latest_version()
 
     if latest_version.number == 0:
-        date_min = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+        date_min = datetime.datetime(1970, 1, 1, tzinfo=datetime.UTC)
     else:
         date_min = latest_version.pulp_created
     with repository.new_version(base_version=None) as new_version:
@@ -397,7 +397,7 @@ def _build_maven_metadata_xml(group_id, artifact_id, versions):
     for v in versions:
         SubElement(versions_elem, "version").text = v
 
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     SubElement(versioning, "lastUpdated").text = now.strftime("%Y%m%d%H%M%S")
 
     return (
@@ -441,7 +441,7 @@ def _build_version_level_metadata_xml(group_id, artifact_id, version, filenames)
     snapshot = SubElement(versioning, "snapshot")
     SubElement(snapshot, "localCopy").text = "true"
 
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     updated = now.strftime("%Y%m%d%H%M%S")
 
     sv_list = SubElement(versioning, "snapshotVersions")

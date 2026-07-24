@@ -1,5 +1,6 @@
 import hashlib
 import re
+import typing
 from tempfile import NamedTemporaryFile
 
 from django.conf import settings
@@ -44,7 +45,7 @@ def has_task_completed(task):
     else:
         error = task.error
         task.delete()
-        raise Exception(str(error))
+        raise RuntimeError(str(error))
 
 
 def get_full_path(base_path, pulp_domain=None):
@@ -77,8 +78,8 @@ class MavenApiViewSet(APIView):
     lookup_field = "name"
 
     # Authentication disabled for now
-    authentication_classes = []
-    permission_classes = []
+    authentication_classes: typing.ClassVar = []
+    permission_classes: typing.ClassVar = []
 
     def redirect_to_content_app(self, distribution, relative_path, request):
         scheme = request.META.get("HTTP_X_FORWARDED_PROTO", request.scheme)
@@ -110,12 +111,12 @@ class MavenApiViewSet(APIView):
     def maven_artifact_attrs_from_path(path):
         group_id, artifact_id, version, name = MavenArtifact.group_artifact_version_filename(path)
 
-        attrs = dict(
-            filename=name,
-            version=version,
-            artifact_id=artifact_id,
-            group_id=group_id,
-        )
+        attrs = {
+            "filename": name,
+            "version": version,
+            "artifact_id": artifact_id,
+            "group_id": group_id,
+        }
         return attrs
 
     def get(self, request, name, path):
@@ -136,7 +137,7 @@ class MavenApiViewSet(APIView):
         return self.redirect_to_content_app(distro, relative_path, request)
 
     def put(self, request, name, path):
-        repo, distro = self.get_repository_and_distributions(name)
+        repo, _distro = self.get_repository_and_distributions(name)
 
         # Determine if this is an artifact or metadata
         is_metadata = self.is_metadata(path)
