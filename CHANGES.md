@@ -8,6 +8,23 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.25.0 (2026-07-28) {: #0.25.0 }
+
+#### Features {: #0.25.0-feature }
+
+- Added Role-Based Access Control (RBAC) to all Maven viewsets with granular
+  permissions for repositories, remotes, distributions, and content.
+  [#308](https://github.com/pulp/pulp_maven/issues/308)
+- Added MavenPackage content type representing a logical Maven package at the
+  GAV (groupId, artifactId, version) level. Packages are automatically created
+  when artifacts are added to a repository and provide a searchable, read-only
+  API endpoint at /pulp/api/v3/content/maven/package/.
+  Note: the data migration backfills MavenPackage records from existing POM files
+  and may take significant time on large instances with many artifacts.
+  [#2072](https://github.com/pulp/pulp_maven/issues/2072)
+
+---
+
 ## 0.24.1 (2026-07-23) {: #0.24.1 }
 
 No significant changes.
