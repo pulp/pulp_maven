@@ -26,6 +26,7 @@ def create_packages_from_poms(apps, schema_editor):
             artifact_id=gav["artifact_id"],
             version=gav["version"],
             _pulp_domain_id=gav["_pulp_domain"],
+            defaults={"pulp_type": "maven.package"},
         )
 
         if not created:
