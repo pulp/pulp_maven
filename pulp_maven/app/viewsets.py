@@ -105,7 +105,7 @@ class MavenArtifactViewSet(SingleArtifactContentUploadViewSet):
         summary="Upload a Maven artifact synchronously.",
     )
     @action(detail=False, methods=["post"], serializer_class=MavenArtifactUploadSerializer)
-    def upload(self, request):
+    def upload(self, request, **kwargs):
         """Create a Maven artifact synchronously."""
         serializer = self.get_serializer(data=request.data)
         with transaction.atomic():
@@ -180,7 +180,7 @@ class MavenMetadataViewSet(SingleArtifactContentUploadViewSet):
         summary="Upload a Maven metadata file synchronously.",
     )
     @action(detail=False, methods=["post"], serializer_class=MavenMetadataUploadSerializer)
-    def upload(self, request):
+    def upload(self, request, **kwargs):
         """Create a Maven metadata content unit synchronously."""
         serializer = self.get_serializer(data=request.data)
         with transaction.atomic():
@@ -436,7 +436,7 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
         responses={202: AsyncOperationResponseSerializer},
     )
     @action(detail=True, methods=["post"], serializer_class=RepositoryAddCachedContentSerializer)
-    def add_cached_content(self, request, pk):
+    def add_cached_content(self, request, pk, **kwargs):
         """
         Add to the repository any MavenArtifact and MavenMetadata that was cached using the
         remote since the last repository version was created.
@@ -472,7 +472,7 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
         responses={202: AsyncOperationResponseSerializer},
     )
     @action(detail=True, methods=["post"])
-    def repair_metadata(self, request, pk):
+    def repair_metadata(self, request, pk, **kwargs):
         """
         Regenerate maven-metadata.xml for all (group_id, artifact_id) pairs.
         """
