@@ -145,7 +145,6 @@ filename = "./pyproject.toml"
 search = "version = \"{current_version}\""
 replace = "version = \"{new_version}\""
 
-
 [tool.check-manifest]
 ignore = [
     ".bumpversion.cfg",
