@@ -1,0 +1,1 @@
+Added repository package catalog and metrics endpoints, plus ``collapse_builds``, ``base_version``, and ``version__startswith`` on the Maven package content API. Existing installs pick up access policy for the new actions on migrate unless the policy was customized.

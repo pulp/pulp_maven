@@ -1,10 +1,15 @@
 from django.db import transaction
-from drf_spectacular.utils import extend_schema
+from django_filters import CharFilter
+from django_filters.rest_framework import filters as drf_filters
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.serializers import IntegerField, URLField, ValidationError
 
 from pulpcore.plugin.actions import ModifyRepositoryActionMixin
+from pulpcore.plugin.models import RepositoryVersion
 from pulpcore.plugin.serializers import AsyncOperationResponseSerializer
 from pulpcore.plugin.tasking import dispatch
 from pulpcore.plugin.viewsets import (
@@ -19,6 +24,15 @@ from pulpcore.plugin.viewsets import (
     SingleArtifactContentUploadViewSet,
 )
 
+from pulp_maven.app.catalog import (
+    apply_package_prefix_filters,
+    assemble_package_index,
+    base_version_annotation,
+    collapse_maven_builds,
+    distinct_ga_qs,
+    maven_packages_in_version,
+    repository_metrics,
+)
 from pulp_maven.app.models import (
     MavenArtifact,
     MavenDistribution,
@@ -35,10 +49,13 @@ from pulp_maven.app.serializers import (
     MavenMetadataUploadSerializer,
     MavenPackageSerializer,
     MavenRemoteSerializer,
+    MavenRepositoryMetricsSerializer,
+    MavenRepositoryPackageSerializer,
     MavenRepositorySerializer,
     RepositoryAddCachedContentSerializer,
 )
 from pulp_maven.app.tasks import add_cached_content_to_repository, repair_metadata
+from pulp_maven.app.versions import strip_build_suffix
 
 
 class MavenArtifactFilter(ContentFilter):
@@ -196,9 +213,50 @@ class MavenPackageFilter(ContentFilter):
     FilterSet for MavenPackage.
     """
 
+    collapse_builds = drf_filters.BooleanFilter(
+        method="filter_collapse_builds",
+        help_text=(
+            "When true, collapse rebuilds of the same logical version: strip a trailing "
+            r"suffix matching \.[a-zA-Z]+-\d+$ from version, then keep one MavenPackage "
+            "per (group_id, artifact_id, base_version) with the latest pulp_created. "
+            "Default false."
+        ),
+    )
+    base_version = CharFilter(
+        method="filter_base_version",
+        help_text=(
+            "Match units whose version strips to this logical version "
+            r"(same suffix as collapse_builds: \.[a-zA-Z]+-\d+$). "
+            "5.3.18 matches 5.3.18 and 5.3.18.rhlw-00003, but not 5.3.180."
+        ),
+    )
+
+    def filter_collapse_builds(self, qs, name, value):
+        """Documented on the FilterSet; applied in the viewset after ordering.
+
+        DISTINCT ON requires ORDER BY to start with the distinct columns. The
+        viewset applies collapse after other filter backends so that ordering
+        cannot break it.
+        """
+        return qs
+
+    def filter_base_version(self, qs, name, value):
+        if not value:
+            return qs
+        value = strip_build_suffix(value)
+        return qs.annotate(_filter_base_version=base_version_annotation()).filter(
+            _filter_base_version=value
+        )
+
     class Meta:
         model = MavenPackage
-        fields = ["group_id", "artifact_id", "version", "name", "packaging"]  # noqa: RUF012
+        fields = {  # noqa: RUF012
+            "group_id": ["exact"],
+            "artifact_id": ["exact"],
+            "version": ["exact", "startswith"],
+            "name": ["exact"],
+            "packaging": ["exact"],
+        }
 
 
 class MavenPackageViewSet(ReadOnlyContentViewSet):
@@ -214,6 +272,18 @@ class MavenPackageViewSet(ReadOnlyContentViewSet):
     queryset = MavenPackage.objects.all()
     serializer_class = MavenPackageSerializer
     filterset_class = MavenPackageFilter
+
+    def filter_queryset(self, queryset):
+        """Apply ``collapse_builds`` after other backends so DISTINCT ON stays valid."""
+        queryset = super().filter_queryset(queryset)
+        if getattr(self, "action", "") != "list":
+            return queryset
+        raw = self.request.query_params.get("collapse_builds")
+        if raw is None or raw == "":
+            return queryset
+        if str(raw).lower() in ("true", "t", "yes", "y", "1"):
+            return collapse_maven_builds(queryset)
+        return queryset
 
     DEFAULT_ACCESS_POLICY = {  # noqa: RUF012
         "statements": [
@@ -339,7 +409,7 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
                 ],
             },
             {
-                "action": ["retrieve"],
+                "action": ["retrieve", "packages", "metrics"],
                 "principal": "authenticated",
                 "effect": "allow",
                 "condition": "has_model_or_domain_or_obj_perms:maven.view_mavenrepository",
@@ -429,6 +499,133 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
         ],
         "maven.mavenrepository_viewer": ["maven.view_mavenrepository"],
     }
+
+    def filter_queryset(self, queryset):
+        """Do not apply the repository FilterSet to package-index query params."""
+        if getattr(self, "action", None) in ("packages", "metrics"):
+            return queryset
+        return super().filter_queryset(queryset)
+
+    def _requested_repository_version(self, repository):
+        """Resolve optional ``repository_version`` href/PRN, else latest complete version."""
+        href = self.request.query_params.get("repository_version")
+        if not href:
+            return repository.latest_version()
+        repo_version = self.get_resource(href, RepositoryVersion)
+        if repo_version.repository_id != repository.pk:
+            raise ValidationError({"repository_version": "Must be a version of this repository."})
+        return repo_version
+
+    @extend_schema(
+        summary="List packages",
+        description=(
+            "Return one row per distinct (group_id, artifact_id) in a repository version "
+            "(latest complete version if repository_version is omitted). "
+            "Pagination count is the number of distinct packages, not GAVs. "
+            "Each row includes versions (logical version keys after rebuild-suffix strip) "
+            "and latest_releases (newest rebuild per logical version). "
+            "set(versions) === set(latest_releases[].version)."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="repository_version",
+                type=OpenApiTypes.URI,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "HREF or PRN of a version of this repository. "
+                    "Defaults to the latest complete version."
+                ),
+            ),
+            OpenApiParameter(
+                name="group_id__istartswith",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Case-insensitive prefix on group_id.",
+            ),
+            OpenApiParameter(
+                name="artifact_id__istartswith",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Case-insensitive prefix on artifact_id.",
+            ),
+        ],
+        responses={
+            200: inline_serializer(
+                name="PaginatedMavenRepositoryPackageList",
+                fields={
+                    "count": IntegerField(),
+                    "next": URLField(allow_null=True),
+                    "previous": URLField(allow_null=True),
+                    "results": MavenRepositoryPackageSerializer(many=True),
+                },
+            )
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        serializer_class=MavenRepositoryPackageSerializer,
+    )
+    def packages(self, request, pk, **kwargs):
+        """List distinct packages in a repository version."""
+        repository = self.get_object()
+        repo_version = self._requested_repository_version(repository)
+        content_qs = maven_packages_in_version(repo_version)
+        content_qs = apply_package_prefix_filters(
+            content_qs,
+            group_id_prefix=request.query_params.get("group_id__istartswith"),
+            artifact_id_prefix=request.query_params.get("artifact_id__istartswith"),
+        )
+        names_qs = distinct_ga_qs(content_qs)
+        page = self.paginate_queryset(names_qs)
+        rows = assemble_package_index(
+            content_qs,
+            page if page is not None else list(names_qs),
+            repository,
+            repo_version,
+        )
+        serializer = self.get_serializer(rows, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @extend_schema(
+        summary="Repository metrics",
+        description=(
+            "Distinct counts for MavenPackage content in a repository version "
+            "(latest complete version if repository_version is omitted). "
+            "package_count is distinct (group_id, artifact_id). version_count is distinct "
+            "(group_id, artifact_id, base_version) after rebuild-suffix strip. "
+            "build_count is distinct (group_id, artifact_id, full version). "
+            "Counts use MavenPackage (POM-backed GAV), not MavenArtifact files."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="repository_version",
+                type=OpenApiTypes.URI,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "HREF or PRN of a version of this repository. "
+                    "Defaults to the latest complete version."
+                ),
+            ),
+        ],
+        responses={200: MavenRepositoryMetricsSerializer},
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        serializer_class=MavenRepositoryMetricsSerializer,
+    )
+    def metrics(self, request, pk, **kwargs):
+        """Return package / version / build counts for a repository version."""
+        repository = self.get_object()
+        repo_version = self._requested_repository_version(repository)
+        counts = repository_metrics(maven_packages_in_version(repo_version))
+        serializer = self.get_serializer(counts)
+        return Response(serializer.data)
 
     @extend_schema(
         description="Trigger an asynchronous task to add cached content to a repository.",
