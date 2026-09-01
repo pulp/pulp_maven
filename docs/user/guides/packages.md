@@ -85,9 +85,16 @@ GET /pulp/api/v3/content/maven/package/
 ```
 
 The list is paginated and can be filtered by `group_id`, `artifact_id`, `version`,
-`name`, and `packaging`. Filtering by the GAV coordinates
-(`group_id`, `artifact_id`, `version`) is the fastest way to find a specific
-release.
+`name`, and `packaging`. `version` also supports case-sensitive `version__startswith`.
+`base_version` matches a logical version after stripping a trailing rebuild suffix
+`\.[a-zA-Z]+-\d+$` (`5.3.18` matches `5.3.18` and `5.3.18.rhlw-00003`, but not
+`5.3.180` or `5.3.18-anything`).
+`collapse_builds=true` keeps one row per logical version. Filtering by the GAV
+coordinates (`group_id`, `artifact_id`, `version`) is the fastest way to find a
+specific release.
+
+For a **package catalog** (one row per groupId/artifactId, prefix search, and
+repository metrics), see [Browse the package catalog](catalog.md).
 
 === "curl"
 
@@ -109,6 +116,7 @@ release.
           "group_id": "org.springframework.cloud",
           "artifact_id": "spring-cloud-config-server",
           "version": "4.3.0-redhat-1",
+          "base_version": "4.3.0-redhat-1",
           "name": "Spring Cloud Config Server",
           "description": "Spring Cloud Config Server",
           "packaging": "jar",

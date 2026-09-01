@@ -10,6 +10,7 @@ from pulpcore.plugin.models import Artifact
 from pulpcore.plugin.util import get_domain_pk
 
 from . import models
+from .versions import strip_build_suffix
 
 
 class MavenRepositorySerializer(platform.RepositorySerializer):
@@ -241,6 +242,12 @@ class MavenPackageSerializer(platform.NoArtifactContentSerializer):
     group_id = serializers.CharField(help_text=_("Group Id of the package."), read_only=True)
     artifact_id = serializers.CharField(help_text=_("Artifact Id of the package."), read_only=True)
     version = serializers.CharField(help_text=_("Version of the package."), read_only=True)
+    base_version = serializers.SerializerMethodField(
+        help_text=_(
+            "The package version with a trailing rebuild suffix stripped "
+            r"(matching \.[a-zA-Z]+-\d+$). Equal to version when no suffix is present."
+        ),
+    )
     name = serializers.CharField(
         help_text=_("Human-readable name from the POM."), read_only=True, allow_null=True
     )
@@ -263,11 +270,15 @@ class MavenPackageSerializer(platform.NoArtifactContentSerializer):
         help_text=_("Source control URL from the POM."), read_only=True, allow_null=True
     )
 
+    def get_base_version(self, obj):
+        return strip_build_suffix(obj.version)
+
     class Meta:
         fields = platform.NoArtifactContentSerializer.Meta.fields + (
             "group_id",
             "artifact_id",
             "version",
+            "base_version",
             "name",
             "description",
             "packaging",
@@ -277,6 +288,68 @@ class MavenPackageSerializer(platform.NoArtifactContentSerializer):
             "scm_url",
         )
         model = models.MavenPackage
+
+
+class MavenPackageReleaseSerializer(serializers.Serializer):
+    """One logical version on the repository package index."""
+
+    version = serializers.CharField(
+        help_text=_("Logical version key (rebuild suffix stripped)."),
+    )
+    release = serializers.CharField(
+        help_text=_(
+            "Rebuild/release qualifier within the version line (e.g. rhlw-00003). "
+            "Empty when the selected unit has no rebuild suffix."
+        ),
+        allow_blank=True,
+    )
+    created_at = serializers.DateTimeField(
+        help_text=_(
+            "When this logical version entered the repository: RepositoryContent.pulp_created "
+            "of the newest rebuild, falling back to the content unit's pulp_created."
+        ),
+    )
+
+
+class MavenRepositoryPackageSerializer(serializers.Serializer):
+    """One distinct (group_id, artifact_id) in a repository version."""
+
+    group_id = serializers.CharField(help_text=_("Maven groupId. Index rows are unique on GA."))
+    artifact_id = serializers.CharField(
+        help_text=_("Maven artifactId. Index rows are unique on GA."),
+    )
+    versions = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=_(
+            "Distinct logical version keys after rebuild-suffix strip. "
+            "The set of values matches latest_releases[].version."
+        ),
+    )
+    latest_releases = MavenPackageReleaseSerializer(
+        many=True,
+        help_text=_(
+            "Newest rebuild per logical version (latest pulp_created). "
+            "set(versions) === set(latest_releases[].version)."
+        ),
+    )
+
+
+class MavenRepositoryMetricsSerializer(serializers.Serializer):
+    """Distinct package / version / build counts for a repository version."""
+
+    package_count = serializers.IntegerField(
+        help_text=_("Distinct (group_id, artifact_id) pairs among MavenPackage units."),
+    )
+    version_count = serializers.IntegerField(
+        help_text=_(
+            "Distinct (group_id, artifact_id, base_version) triples after rebuild-suffix strip."
+        ),
+    )
+    build_count = serializers.IntegerField(
+        help_text=_(
+            "Distinct (group_id, artifact_id, full version) GAVs among MavenPackage units."
+        ),
+    )
 
 
 class MavenRemoteSerializer(platform.RemoteSerializer):
