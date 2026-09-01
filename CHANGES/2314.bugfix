@@ -1,0 +1,3 @@
+Added regression test for PULP-2314: copying Maven artifacts that include a
+.pom file between repositories must not fail with an AssertionError in the
+domain check inside ``add_content``.
