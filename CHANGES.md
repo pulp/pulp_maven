@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.26.0 (2026-09-02) {: #0.26.0 }
+
+#### Features {: #0.26.0-feature }
+
+- Added repository package catalog and metrics endpoints, plus ``collapse_builds``, ``base_version``, and ``version__startswith`` on the Maven package content API. Existing installs pick up access policy for the new actions on migrate unless the policy was customized.
+  [#441](https://github.com/pulp/pulp_maven/issues/441)
+
+---
+
 ## 0.25.1 (2026-07-28) {: #0.25.1 }
 
 No significant changes.
