@@ -106,7 +106,7 @@ When using [pull-through caching](create-cache.md), metadata generation is defer
 streamed from a remote is saved into the repository without regenerating metadata on every
 request — this avoids blocking the content app. Metadata is generated when content is explicitly
 added to a repository version through other operations (upload, promote, or the
-`add_cached_content` action).
+`modify` action).
 
 ## API reference
 
