@@ -56,11 +56,11 @@ A custom `APIView` (no authentication enforced) mounted at `^pulp/maven/<name>/<
 - **PUT**: Receives uploaded files, creates `Artifact`/`ContentArtifact`/`MavenArtifact` or `MavenMetadata` records, then dispatches `aadd_and_remove` as an immediate task to update the repository version.
 
 ### Viewsets (`pulp_maven/app/viewsets.py`)
-Standard Pulp CRUD viewsets for all models. `MavenRepositoryViewSet` adds an `add_cached_content` action that dispatches the `add_cached_content_to_repository` task to save content that was streamed via a remote into a new repository version.
+Standard Pulp CRUD viewsets for all models. `MavenRepositoryViewSet` adds a `repair_metadata` action that dispatches the `repair_metadata` task to regenerate `maven-metadata.xml` files. Content streamed via a remote (pull-through) is added to the repository automatically by `MavenRepository.pull_through_add_content`, so no manual action is needed.
 
 ### Tasks (`pulp_maven/app/tasks/__init__.py`)
 - **`aadd_and_remove`** — Async wrapper around `pulpcore`'s `add_and_remove`, used by the deploy API for immediate (non-deferred) task dispatch.
-- **`add_cached_content_to_repository`** — Creates a new repository version by finding `RemoteArtifact` records created since the last version and adding their content.
+- **`pull_through_aadd_and_remove`** — Adds pull-through-cached content to a new repository version while skipping metadata regeneration (used by `MavenRepository.pull_through_add_content`).
 
 ### URL Registration (`pulp_maven/app/urls.py`)
 Mounts the deploy API at `^pulp/maven/` with optional domain prefix when `DOMAIN_ENABLED` is set.

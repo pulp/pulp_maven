@@ -1,0 +1,3 @@
+Removed the redundant ``add_cached_content`` action on Maven repositories. Content
+cached via pull-through is now added to the repository automatically when streamed
+from a remote, so the manual endpoint is no longer needed.

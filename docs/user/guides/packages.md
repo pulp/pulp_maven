@@ -40,9 +40,9 @@ to add or remove packages yourself.
 If a release's files are uploaded *without* its `.pom`, no package is created for
 it until the POM shows up.
 
-Content added through [pull-through caching](create-cache.md) is one exception: its
-packages appear only once the cached files are saved into a repository (the "add
-cached content" step), not while they are being streamed to clients.
+Content added through [pull-through caching](create-cache.md) is one exception: artifacts
+are saved into the repository automatically, but packages are not created until a
+`modify`, upload, or deploy operation runs package reconciliation.
 
 ## What Pulp reads from the POM
 
