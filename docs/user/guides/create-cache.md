@@ -70,7 +70,7 @@ The commands below use the `pulp-cli-maven` package available on PyPI.
 The repository will be used to store cached content. When content is fetched via pull-through
 caching, it is automatically added to this repository.
 
-You don't have to specify a remote on it, but adding one now will enable you to not have to specify one each time you want to add newly cached content to a repository.
+You don't have to specify a remote on the repository, but associating one now lets pull-through caching use it by default on the distribution.
 
 === "run"
 

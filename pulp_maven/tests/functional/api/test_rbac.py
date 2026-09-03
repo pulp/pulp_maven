@@ -52,6 +52,8 @@ def test_basic_actions(gen_users, maven_bindings, try_action, maven_repo_factory
     """Test list, read, create, update and delete on repositories."""
     alice, bob, charlie = gen_users("mavenrepository")
 
+    maven_repo_factory()
+
     a_list = try_action(alice, maven_bindings.RepositoriesMavenApi, "list", 200)
     assert a_list.count >= 1
     b_list = try_action(bob, maven_bindings.RepositoriesMavenApi, "list", 200)
@@ -124,39 +126,12 @@ def test_repository_actions(
     maven_remote_factory,
     try_action,
 ):
-    """Test add_cached_content, repair_metadata, and modify actions."""
+    """Test repair_metadata and modify actions."""
     alice, bob, charlie = gen_users(["mavenrepository", "mavenremote"])
 
     with bob:
         bob_remote = maven_remote_factory(url="https://repo1.maven.org/maven2/")
         repo = maven_repo_factory(remote=bob_remote.pulp_href)
-
-    # add_cached_content tests
-    body = {"remote": bob_remote.pulp_href}
-    try_action(
-        alice,
-        maven_bindings.RepositoriesMavenApi,
-        "add_cached_content",
-        403,
-        repo.pulp_href,
-        body,
-    )
-    try_action(
-        bob,
-        maven_bindings.RepositoriesMavenApi,
-        "add_cached_content",
-        202,
-        repo.pulp_href,
-        body,
-    )
-    try_action(
-        charlie,
-        maven_bindings.RepositoriesMavenApi,
-        "add_cached_content",
-        404,
-        repo.pulp_href,
-        body,
-    )
 
     # repair_metadata tests
     try_action(

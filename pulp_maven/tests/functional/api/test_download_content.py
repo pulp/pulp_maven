@@ -1,6 +1,7 @@
 """Tests that verify download of content served by Pulp."""
 
 import hashlib
+import time
 from urllib.parse import urljoin
 
 from pulp_maven.tests.functional.utils import download_file
@@ -92,7 +93,12 @@ def test_pullthrough_idempotent(
 
     # First request — content is fetched from remote and added to the repository
     download_file(pulp_unit_url)
-    repository = maven_repo_api_client.read(repository.pulp_href)
+    for _ in range(30):
+        repository = maven_repo_api_client.read(repository.pulp_href)
+        if not repository.latest_version_href.endswith("/versions/0/"):
+            break
+        time.sleep(1)
+    assert repository.latest_version_href.endswith("/versions/1/")
     first_version = repository.latest_version_href
 
     # Second request — content already exists; no new version should be created
