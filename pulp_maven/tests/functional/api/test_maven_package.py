@@ -447,8 +447,8 @@ def test_pullthrough_pom_no_package_until_modify(
     assert packages.count == 0, "Pull-through should not create MavenPackage"
 
     # Now pull another artifact for the same GAV — a .jar.sha1.
-    # This triggers a new version via add_cached_content, but pull-through still
-    # skips _ensure_packages. Upload a new artifact via modify() to trigger it.
+    # Pull-through auto-adds this to a new version, but still skips
+    # _ensure_packages. Upload a new artifact via modify() to trigger it.
     jar_sha1_path = "academy/alex/custommatcher/1.0/custommatcher-1.0.jar.sha1"
     jar_sha1_url = urljoin(distribution_base_url(distribution.base_url), jar_sha1_path)
     download_file(jar_sha1_url)
