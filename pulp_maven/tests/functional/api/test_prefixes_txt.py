@@ -1,5 +1,6 @@
 """Tests for .meta/prefixes.txt generation"""
 
+import time
 import uuid
 from urllib.parse import urljoin
 
@@ -340,7 +341,13 @@ def test_prefixes_txt_generated_for_existing_repo_without_prefixes(
     downloaded = download_file(urljoin(base_url, pull_through_path))
     assert downloaded.response_obj.status == 200
 
-    repo = maven_repo_api_client.read(repo.pulp_href)
+    # pull_through_add_content dispatches an immediate task; the GET can return
+    # before that version is committed (same wait as test_maven_package).
+    for _ in range(30):
+        repo = maven_repo_api_client.read(repo.pulp_href)
+        if not repo.latest_version_href.endswith("/versions/0/"):
+            break
+        time.sleep(1)
     assert repo.latest_version_href.endswith("/versions/1/")
 
     # Confirm no prefixes.txt exists yet

@@ -10,7 +10,7 @@ from pulpcore.plugin.models import Artifact
 from pulpcore.plugin.util import get_domain_pk
 
 from . import models
-from .versions import strip_build_suffix
+from .versions import BUILD_SUFFIX_PATTERN, strip_build_suffix
 
 
 class MavenRepositorySerializer(platform.RepositorySerializer):
@@ -245,8 +245,9 @@ class MavenPackageSerializer(platform.NoArtifactContentSerializer):
     base_version = serializers.SerializerMethodField(
         help_text=_(
             "The package version with a trailing rebuild suffix stripped "
-            r"(matching \.[a-zA-Z]+-\d+$). Equal to version when no suffix is present."
-        ),
+            "(matching %s). Equal to version when no suffix is present."
+        )
+        % BUILD_SUFFIX_PATTERN,
     )
     name = serializers.CharField(
         help_text=_("Human-readable name from the POM."), read_only=True, allow_null=True
@@ -298,7 +299,8 @@ class MavenPackageReleaseSerializer(serializers.Serializer):
     )
     release = serializers.CharField(
         help_text=_(
-            "Rebuild/release qualifier within the version line (e.g. rhlw-00003). "
+            "Rebuild/release qualifier within the version line "
+            "(e.g. rhlw-00001 or rhlw-00001-n0001). "
             "Empty when the selected unit has no rebuild suffix."
         ),
         allow_blank=True,
@@ -318,17 +320,25 @@ class MavenRepositoryPackageSerializer(serializers.Serializer):
     artifact_id = serializers.CharField(
         help_text=_("Maven artifactId. Index rows are unique on GA."),
     )
+    last_updated = serializers.DateTimeField(
+        help_text=_(
+            "When this package was last updated in the repository: the latest "
+            "RepositoryContent.pulp_created among all MavenPackage units for this "
+            "GA (any rebuild), falling back to the content unit's pulp_created."
+        ),
+        allow_null=True,
+    )
     versions = serializers.ListField(
         child=serializers.CharField(),
         help_text=_(
-            "Distinct logical version keys after rebuild-suffix strip. "
+            "Distinct logical version keys after rebuild-suffix strip, newest first. "
             "The set of values matches latest_releases[].version."
         ),
     )
     latest_releases = MavenPackageReleaseSerializer(
         many=True,
         help_text=_(
-            "Newest rebuild per logical version (latest pulp_created). "
+            "Newest rebuild per logical version (latest pulp_created), newest version first. "
             "set(versions) === set(latest_releases[].version)."
         ),
     )

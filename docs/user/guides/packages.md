@@ -87,13 +87,13 @@ GET /pulp/api/v3/content/maven/package/
 The list is paginated and can be filtered by `group_id`, `artifact_id`, `version`,
 `name`, and `packaging`. `version` also supports case-sensitive `version__startswith`.
 `base_version` matches a logical version after stripping a trailing rebuild suffix
-`\.[a-zA-Z]+-\d+$` (`5.3.18` matches `5.3.18` and `5.3.18.rhlw-00003`, but not
-`5.3.180` or `5.3.18-anything`).
+`\.[a-zA-Z]+-[^.]+$` (`5.3.17` matches `5.3.17`, `5.3.17.rhlw-00001`, and
+`5.3.17.rhlw-00001-n0001`, but not `5.3.170` or `5.3.17-anything`).
 `collapse_builds=true` keeps one row per logical version. Filtering by the GAV
 coordinates (`group_id`, `artifact_id`, `version`) is the fastest way to find a
 specific release.
 
-For a **package catalog** (one row per groupId/artifactId, prefix search, and
+For a **package catalog** (one row per groupId/artifactId, search, prefix filters, and
 repository metrics), see [Browse the package catalog](catalog.md).
 
 === "curl"

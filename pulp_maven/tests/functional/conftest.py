@@ -97,7 +97,12 @@ def maven_remote_factory(maven_remote_api_client, gen_object_with_cleanup):
 
 @pytest.fixture
 def pom_file_factory(tmp_path):
-    """Create POM XML files with specified metadata."""
+    """Create POM XML files with specified metadata.
+
+    Each file includes a unique XML comment so parallel pytest-xdist workers
+    cannot hit ``core_artifact_sha256_pulp_domain_id_*`` when uploading the
+    same GAV (see pulp/pulp_maven#459).
+    """
     _counter = 0
 
     def _pom_file_factory(
@@ -155,6 +160,7 @@ def pom_file_factory(tmp_path):
             lines.append("  <scm>")
             lines.append(f"    <url>{scm_url}</url>")
             lines.append("  </scm>")
+        lines.append(f"  <!-- pulp-test-salt: {uuid.uuid4().hex} -->")
         lines.append("</project>")
 
         filename = f"{artifact_id}-{version}.pom"
