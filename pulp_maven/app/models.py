@@ -4,6 +4,7 @@ from gettext import gettext as _
 from logging import getLogger
 from os import path
 
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 from pulpcore.plugin.models import (
@@ -204,6 +205,18 @@ class MavenPackage(Content):
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
         unique_together = ("group_id", "artifact_id", "version", "_pulp_domain")
+        indexes = [  # noqa: RUF012
+            GinIndex(
+                fields=["group_id"],
+                name="maven_pkg_group_id_trgm",
+                opclasses=["gin_trgm_ops"],
+            ),
+            GinIndex(
+                fields=["artifact_id"],
+                name="maven_pkg_artifact_id_trgm",
+                opclasses=["gin_trgm_ops"],
+            ),
+        ]
 
     def update_from_pom(self, artifact):
         """Parse POM XML from an artifact file and populate metadata fields."""
