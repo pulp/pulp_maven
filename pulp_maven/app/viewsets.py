@@ -26,6 +26,7 @@ from pulpcore.plugin.viewsets import (
 
 from pulp_maven.app.catalog import (
     apply_package_prefix_filters,
+    apply_package_search_filter,
     assemble_package_index,
     base_version_annotation,
     collapse_maven_builds,
@@ -61,7 +62,11 @@ from pulp_maven.app.tasks import (
     repair_index_pages,
     repair_metadata,
 )
-from pulp_maven.app.versions import strip_build_suffix
+from pulp_maven.app.versions import (
+    BUILD_SUFFIX_PATTERN,
+    normalize_package_index_ordering,
+    strip_build_suffix,
+)
 
 
 class MavenArtifactFilter(ContentFilter):
@@ -223,7 +228,7 @@ class MavenPackageFilter(ContentFilter):
         method="filter_collapse_builds",
         help_text=(
             "When true, collapse rebuilds of the same logical version: strip a trailing "
-            r"suffix matching \.[a-zA-Z]+-\d+$ from version, then keep one MavenPackage "
+            f"suffix matching {BUILD_SUFFIX_PATTERN} from version, then keep one MavenPackage "
             "per (group_id, artifact_id, base_version) with the latest pulp_created. "
             "Default false."
         ),
@@ -232,8 +237,9 @@ class MavenPackageFilter(ContentFilter):
         method="filter_base_version",
         help_text=(
             "Match units whose version strips to this logical version "
-            r"(same suffix as collapse_builds: \.[a-zA-Z]+-\d+$). "
-            "5.3.18 matches 5.3.18 and 5.3.18.rhlw-00003, but not 5.3.180."
+            f"(same suffix as collapse_builds: {BUILD_SUFFIX_PATTERN}). "
+            "5.3.17 matches 5.3.17, 5.3.17.rhlw-00001, and 5.3.17.rhlw-00001-n0001, "
+            "but not 5.3.170."
         ),
     )
 
@@ -549,8 +555,9 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
             "Return one row per distinct (group_id, artifact_id) in a repository version "
             "(latest complete version if repository_version is omitted). "
             "Pagination count is the number of distinct packages, not GAVs. "
-            "Each row includes versions (logical version keys after rebuild-suffix strip) "
-            "and latest_releases (newest rebuild per logical version). "
+            "Each row includes last_updated (newest membership among any rebuild), "
+            "versions (logical version keys after rebuild-suffix strip, newest first), "
+            "and latest_releases (newest rebuild per logical version, same order). "
             "set(versions) === set(latest_releases[].version)."
         ),
         parameters=[
@@ -575,6 +582,28 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description="Case-insensitive prefix on artifact_id.",
+            ),
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Case-insensitive package search. Without ':', group_id or artifact_id "
+                    "contains the term (OR). With ':', group_id contains the left part AND "
+                    "artifact_id contains the right part. A third ':' segment (version) is "
+                    "ignored. Empty or ':' is a no-op. Combines with prefix filters using AND."
+                ),
+            ),
+            OpenApiParameter(
+                name="ordering",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                many=True,
+                description=(
+                    "Order catalog rows. Allowed: group_id, artifact_id, last_updated. "
+                    "Prefix with '-' for descending. Default is group_id, artifact_id. "
+                    "Ordering by group_id without artifact_id also sorts by artifact_id."
+                ),
             ),
         ],
         responses={
@@ -604,7 +633,12 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
             group_id_prefix=request.query_params.get("group_id__istartswith"),
             artifact_id_prefix=request.query_params.get("artifact_id__istartswith"),
         )
-        names_qs = distinct_ga_qs(content_qs)
+        content_qs = apply_package_search_filter(content_qs, request.query_params.get("search"))
+        try:
+            ordering = normalize_package_index_ordering(request.query_params.getlist("ordering"))
+        except ValueError as exc:
+            raise ValidationError({"ordering": str(exc)}) from exc
+        names_qs = distinct_ga_qs(content_qs, repository, repo_version, ordering=ordering)
         page = self.paginate_queryset(names_qs)
         rows = assemble_package_index(
             content_qs,
