@@ -1,0 +1,1 @@
+Added ``search`` (contains on ``group_id``/``artifact_id``; ``group:artifact`` ANDs the two sides), ``last_updated``, and ``ordering`` on the repository package catalog. Catalog ``versions`` and ``latest_releases`` are newest-first. Creates the ``pg_trgm`` extension and GIN trigram indexes on ``group_id`` and ``artifact_id``.

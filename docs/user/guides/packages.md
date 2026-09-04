@@ -93,7 +93,7 @@ The list is paginated and can be filtered by `group_id`, `artifact_id`, `version
 coordinates (`group_id`, `artifact_id`, `version`) is the fastest way to find a
 specific release.
 
-For a **package catalog** (one row per groupId/artifactId, prefix search, and
+For a **package catalog** (one row per groupId/artifactId, search, prefix filters, and
 repository metrics), see [Browse the package catalog](catalog.md).
 
 === "curl"

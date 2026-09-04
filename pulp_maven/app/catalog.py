@@ -1,12 +1,17 @@
 """Helpers for repository package catalog, metrics, and rebuild collapse."""
 
-import re
 from collections import defaultdict
 
-from django.db.models import CharField, Count, Func, Min, Q, Value
+from django.db.models import CharField, Func, Max, Min, Q, Value
+from django.db.models.functions import Coalesce
 
 from pulp_maven.app.models import MavenPackage
-from pulp_maven.app.versions import rebuild_release
+from pulp_maven.app.versions import (
+    DEFAULT_PACKAGE_INDEX_ORDERING,
+    parse_package_search,
+    rebuild_release,
+    version_sort_key,
+)
 
 # POSIX regex for REGEXP_REPLACE. PostgreSQL does not treat ``\d`` as digits.
 BUILD_SUFFIX_PG_REGEX = r"\.[a-zA-Z]+-[0-9]+$"
@@ -59,37 +64,76 @@ def apply_package_prefix_filters(queryset, group_id_prefix=None, artifact_id_pre
     return queryset
 
 
-def distinct_ga_qs(content_qs):
-    """One row per distinct ``(group_id, artifact_id)``, ordered for stable pagination."""
-    return (
-        content_qs.order_by()
-        .values("group_id", "artifact_id")
-        .annotate(_n=Count("pk"))
-        .order_by("group_id", "artifact_id")
+def apply_package_search_filter(queryset, search=None):
+    """Apply case-insensitive ``search`` used by the package index.
+
+    Combines with other filters using AND. A term without ``:`` is
+    ``group_id`` contains OR ``artifact_id`` contains. A term with ``:`` is
+    ``group_id`` contains the left part AND ``artifact_id`` contains the right.
+    """
+    parsed = parse_package_search(search)
+    if parsed is None:
+        return queryset
+    if parsed[0] == "or":
+        term = parsed[1]
+        return queryset.filter(Q(group_id__icontains=term) | Q(artifact_id__icontains=term))
+    _, group_term, artifact_term = parsed
+    q = Q()
+    if group_term:
+        q &= Q(group_id__icontains=group_term)
+    if artifact_term:
+        q &= Q(artifact_id__icontains=artifact_term)
+    return queryset.filter(q)
+
+
+def membership_in_version_q(repository, repository_version):
+    """Q-object matching RepositoryContent rows present in ``repository_version``."""
+    return Q(
+        version_memberships__repository=repository,
+        version_memberships__version_added__number__lte=repository_version.number,
+    ) & (
+        Q(version_memberships__version_removed__isnull=True)
+        | Q(version_memberships__version_removed__number__gt=repository_version.number)
     )
 
 
-def _version_sort_key(version):
-    """Order Maven-like versions with numeric tokens compared as integers."""
-    if not version:
-        return ()
-    key = []
-    for token in re.split(r"([.-])", version):
-        if token.isdigit():
-            key.append((0, int(token)))
-        else:
-            key.append((1, token))
-    return tuple(key)
+def last_updated_annotation(repository, repository_version):
+    """Newest repository-membership time among all MavenPackage units for a GA.
+
+    Uses ``RepositoryContent.pulp_created`` (any rebuild), falling back to the
+    content unit's ``pulp_created``.
+    """
+    return Coalesce(
+        Max(
+            "version_memberships__pulp_created",
+            filter=membership_in_version_q(repository, repository_version),
+        ),
+        Max("pulp_created"),
+    )
+
+
+def distinct_ga_qs(content_qs, repository, repository_version, ordering=None):
+    """One row per distinct ``(group_id, artifact_id)``, ordered for stable pagination."""
+    if ordering is None:
+        ordering = DEFAULT_PACKAGE_INDEX_ORDERING
+    qs = content_qs.order_by().values("group_id", "artifact_id")
+    if repository_version is None:
+        qs = qs.annotate(last_updated=Max("pulp_created"))
+    else:
+        qs = qs.annotate(last_updated=last_updated_annotation(repository, repository_version))
+    return qs.order_by(*ordering)
 
 
 def assemble_package_index(content_qs, ga_rows, repository, repository_version):
     """Build package-index dicts for ``ga_rows``.
 
     Each row is one ``(group_id, artifact_id)``. ``versions`` are distinct base
-    versions. ``latest_releases`` keeps the newest rebuild (latest
-    ``pulp_created``) per base version. ``created_at`` is that unit's
+    versions, newest first (numeric-token order). ``latest_releases`` keeps the
+    newest rebuild (latest ``pulp_created``) per base version in the same order. ``created_at`` is that unit's
     repository-membership time (``RepositoryContent.pulp_created``), falling
-    back to the content unit's ``pulp_created``.
+    back to the content unit's ``pulp_created``. ``last_updated`` is the newest
+    membership time among all units for the GA (any rebuild), taken from
+    ``ga_rows`` when annotated.
     """
     if not ga_rows or repository_version is None:
         return []
@@ -98,13 +142,7 @@ def assemble_package_index(content_qs, ga_rows, repository, repository_version):
     for row in ga_rows:
         pair_q |= Q(group_id=row["group_id"], artifact_id=row["artifact_id"])
 
-    in_this_version = Q(
-        version_memberships__repository=repository,
-        version_memberships__version_added__number__lte=repository_version.number,
-    ) & (
-        Q(version_memberships__version_removed__isnull=True)
-        | Q(version_memberships__version_removed__number__gt=repository_version.number)
-    )
+    in_this_version = membership_in_version_q(repository, repository_version)
 
     newest_units = list(
         content_qs.filter(pair_q)
@@ -147,7 +185,8 @@ def assemble_package_index(content_qs, ga_rows, repository, repository_version):
         ga = (row["group_id"], row["artifact_id"])
         rels = sorted(
             releases_by_ga.get(ga, []),
-            key=lambda item: _version_sort_key(item["_base_version"]),
+            key=lambda item: version_sort_key(item["_base_version"]),
+            reverse=True,
         )
         versions = [item["_base_version"] for item in rels]
         latest_releases = [
@@ -162,6 +201,7 @@ def assemble_package_index(content_qs, ga_rows, repository, repository_version):
             {
                 "group_id": row["group_id"],
                 "artifact_id": row["artifact_id"],
+                "last_updated": row.get("last_updated"),
                 "versions": versions,
                 "latest_releases": latest_releases,
             }

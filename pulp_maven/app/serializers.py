@@ -318,17 +318,25 @@ class MavenRepositoryPackageSerializer(serializers.Serializer):
     artifact_id = serializers.CharField(
         help_text=_("Maven artifactId. Index rows are unique on GA."),
     )
+    last_updated = serializers.DateTimeField(
+        help_text=_(
+            "When this package was last updated in the repository: the latest "
+            "RepositoryContent.pulp_created among all MavenPackage units for this "
+            "GA (any rebuild), falling back to the content unit's pulp_created."
+        ),
+        allow_null=True,
+    )
     versions = serializers.ListField(
         child=serializers.CharField(),
         help_text=_(
-            "Distinct logical version keys after rebuild-suffix strip. "
+            "Distinct logical version keys after rebuild-suffix strip, newest first. "
             "The set of values matches latest_releases[].version."
         ),
     )
     latest_releases = MavenPackageReleaseSerializer(
         many=True,
         help_text=_(
-            "Newest rebuild per logical version (latest pulp_created). "
+            "Newest rebuild per logical version (latest pulp_created), newest version first. "
             "set(versions) === set(latest_releases[].version)."
         ),
     )
