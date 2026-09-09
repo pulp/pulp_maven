@@ -398,6 +398,70 @@ def test_deploy_api_generates_metadata(
 
 
 @pytest.mark.parallel
+def test_deploy_api_metadata_not_clobbered_by_client_upload(
+    maven_repo_factory,
+    maven_distribution_factory,
+    maven_repo_api_client,
+    distribution_base_url,
+    pulp_settings,
+):
+    """Client-uploaded maven-metadata.xml must not clobber Pulp's generated file."""
+    import asyncio
+    from urllib.parse import urlsplit
+
+    import aiohttp
+
+    repo = maven_repo_factory()
+    distro = maven_distribution_factory(repository=repo.pulp_href)
+    base_url = distribution_base_url(distro.base_url)
+    uid = _uid()
+
+    origin = "{0.scheme}://{0.netloc}".format(urlsplit(base_url))
+    domain = "default/" if pulp_settings.DOMAIN_ENABLED else ""
+    deploy_prefix = f"{origin}/pulp/maven/{domain}{repo.name}"
+
+    async def _put(url, data):
+        async with aiohttp.ClientSession(raise_for_status=True) as session:
+            async with session.put(url, data=data) as resp:
+                return resp.status
+
+    # 1. Deploy three versions the way mvn deploy would (jars via PUT).
+    for version in ["1.0.0", "2.0.0", "3.0.0"]:
+        jar_path = f"com/{uid}/clobber2/{version}/clobber2-{version}.jar"
+        status = asyncio.run(_put(f"{deploy_prefix}/{jar_path}", b"fake jar " + version.encode()))
+        assert status == 201
+
+    # Pulp has generated correct metadata listing all three versions.
+    metadata_url = urljoin(base_url, f"com/{uid}/clobber2/maven-metadata.xml")
+    root = ElementTree.fromstring(download_file(metadata_url).body)
+    versions = sorted(v.text for v in root.findall(".//versions/version"))
+    assert versions == ["1.0.0", "2.0.0", "3.0.0"]
+
+    # 2. Client PUTs its own repo-level maven-metadata.xml listing only 1.0.0,
+    client_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+    <metadata>
+      <groupId>com.{uid}</groupId>
+      <artifactId>clobber2</artifactId>
+      <versioning>
+        <latest>1.0.0</latest>
+        <release>1.0.0</release>
+        <versions>
+          <version>1.0.0</version>
+        </versions>
+        <lastUpdated>20200101000000</lastUpdated>
+      </versioning>
+    </metadata>
+""".encode()
+    status = asyncio.run(_put(f"{deploy_prefix}/com/{uid}/clobber2/maven-metadata.xml", client_xml))
+    assert status == 201
+
+    # 3. Pulp must still serve its own generated metadata listing ALL versions, not the client's truncated copy.
+    root = ElementTree.fromstring(download_file(metadata_url).body)
+    versions = sorted(v.text for v in root.findall(".//versions/version"))
+    assert versions == ["1.0.0", "2.0.0", "3.0.0"]
+
+
+@pytest.mark.parallel
 def test_version_level_metadata_generated_for_snapshot(
     maven_repo_factory,
     maven_distribution_factory,
