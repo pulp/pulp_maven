@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.27.0 (2026-09-11) {: #0.27.0 }
+
+#### Features {: #0.27.0-feature }
+
+- Pre-generate HTML directory index pages during finalize_new_version so the content app serves them directly without the expensive on-demand list_directory() fallback.
+  [#453](https://github.com/pulp/pulp_maven/issues/453)
+
+---
+
 ## 0.26.0 (2026-09-02) {: #0.26.0 }
 
 #### Features {: #0.26.0-feature }
