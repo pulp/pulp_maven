@@ -1,0 +1,1 @@
+Fixed O(N-directories) database query pattern in _generate_index_pages; all ContentArtifacts are now fetched in a single query and directory listings are computed in Python, reducing repair_index_pages runtime from hours to minutes for large repositories.
