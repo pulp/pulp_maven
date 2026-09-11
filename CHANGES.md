@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.27.1 (2026-09-11) {: #0.27.1 }
+
+#### Bugfixes {: #0.27.1-bugfix }
+
+- Fixed O(N-directories) database query pattern in _generate_index_pages; all ContentArtifacts are now fetched in a single query and directory listings are computed in Python, reducing repair_index_pages runtime from hours to minutes for large repositories.
+  [#458](https://github.com/pulp/pulp_maven/issues/458)
+
+---
+
 ## 0.27.0 (2026-09-11) {: #0.27.0 }
 
 #### Features {: #0.27.0-feature }
