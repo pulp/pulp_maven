@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.27.4 (2026-09-12) {: #0.27.4 }
+
+#### Bugfixes {: #0.27.4-bugfix }
+
+- Fixed repair_index_pages crashing with "cannot enter context: already entered" when uploading artifacts in parallel. A shared contextvars.Context object cannot be entered concurrently by multiple ThreadPoolExecutor threads; replaced ctx.run() with set_domain() called at the start of each worker thread instead.
+  [#468](https://github.com/pulp/pulp_maven/issues/468)
+
+---
+
 ## 0.27.3 (2026-09-12) {: #0.27.3 }
 
 #### Bugfixes {: #0.27.3-bugfix }
