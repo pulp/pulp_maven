@@ -681,3 +681,77 @@ def test_repair_index_pages_generates_correct_listings(
     assert "rip-lib-1.0.0.jar" in v1_html, "jar missing from 1.0.0/ page after repair"
     assert "rip-lib-1.0.0.pom" in v1_html, "pom missing from 1.0.0/ page after repair"
     assert "2.0.0/" not in v1_html, "sibling version directory appears in 1.0.0/ page"
+
+
+@pytest.mark.parallel
+def test_repair_index_pages_idempotent(
+    pulpcore_bindings,
+    maven_repo_factory,
+    maven_distribution_factory,
+    maven_artifact_api_client,
+    maven_repo_api_client,
+    random_artifact_factory,
+    monitor_task,
+    distribution_base_url,
+):
+    """repair_index_pages is idempotent: a second run produces identical HTML.
+
+    This exercises the batch sha256 existence-check path in _save_artifacts_batch:
+    - First run: all artifacts are new → parallel uploads fire, pages generated.
+    - Second run: all artifacts already exist → batch IN query returns everything,
+      no uploads needed, but pages must still be correctly attached to the new version.
+
+    If the batch existence-check is broken (e.g. wrong domain filter, sha256 mismatch)
+    the second run would regenerate content with different sha256s, causing the HTML
+    comparison to fail.
+    """
+    repo = maven_repo_factory()
+    distro = maven_distribution_factory(repository=repo.pulp_href)
+    base_url = distribution_base_url(distro.base_url)
+    uid = uuid.uuid4().hex[:8]
+
+    content_hrefs = []
+    for version in ["1.0.0", "2.0.0"]:
+        for ext in ["jar", "pom"]:
+            a = random_artifact_factory(size=64)
+            c = maven_artifact_api_client.upload(
+                artifact=a.pulp_href,
+                relative_path=f"com/{uid}/idem-lib/{version}/idem-lib-{version}.{ext}",
+            )
+            content_hrefs.append(c.pulp_href)
+
+    monitor_task(
+        maven_repo_api_client.modify(repo.pulp_href, {"add_content_units": content_hrefs}).task
+    )
+
+    # First repair run — all artifacts are new, parallel uploads fire.
+    monitor_task(maven_repo_api_client.repair_index_pages(repo.pulp_href).task)
+    repo = maven_repo_api_client.read(repo.pulp_href)
+
+    html_after_first = {
+        path: download_file(urljoin(base_url, path)).body
+        for path in [
+            f"com/{uid}/idem-lib/",
+            f"com/{uid}/idem-lib/1.0.0/",
+            f"com/{uid}/idem-lib/2.0.0/",
+        ]
+    }
+
+    pages_after_first = pulpcore_bindings.ContentApi.list(
+        repository_version=repo.latest_version_href,
+        pulp_type__in=["maven.index-page"],
+        limit=100,
+    )
+    assert pages_after_first.count > 0
+
+    # Second repair run — all artifacts already exist, batch existence-check must
+    # find them and attach them without uploading.
+    monitor_task(maven_repo_api_client.repair_index_pages(repo.pulp_href).task)
+    repo = maven_repo_api_client.read(repo.pulp_href)
+
+    for path, html_first in html_after_first.items():
+        html_second = download_file(urljoin(base_url, path)).body
+        assert html_second == html_first, (
+            f"{path} HTML changed between first and second repair — "
+            "batch existence-check may be returning wrong artifacts"
+        )

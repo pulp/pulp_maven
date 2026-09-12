@@ -721,7 +721,7 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
         from pulpcore.plugin.content import Handler
         from pulpcore.plugin.models import ContentArtifact, RemoteArtifact
 
-        from pulp_maven.app.tasks import _save_artifact
+        from pulp_maven.app.tasks import _save_artifact, _save_artifacts_batch
 
         # Track whether the caller passed an explicit path set (the repair case).
         # The two strategies below are chosen based on this flag.
@@ -779,9 +779,9 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
         }
 
         if bulk_mode:
-            # Repair / full-repository path: fetch ALL ContentArtifacts in one query and
-            # build every directory listing in Python.  For O(directories) affected paths
-            # this trades one large query for O(directories) small ones.
+            # Repair / full-repository path: fetch ALL ContentArtifacts in one query,
+            # build all directory listings in Python, batch-save artifacts, then
+            # batch-write DB rows.
             all_cas = list(
                 ContentArtifact.objects.select_related("artifact")
                 .filter(content__in=new_version.content)
@@ -797,7 +797,7 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                 ).values_list("content_artifact_id", "size"):
                     remote_sizes[ra_ca_id] = size
 
-            # Build per-directory data in one pass.
+            # Build per-directory data in one pass (pure CPU, no I/O).
             dir_entries: dict = {dp: {} for dp in affected_paths}
 
             for ca in all_cas:
@@ -819,7 +819,61 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                         "date": ca_date,
                     }
 
-            dir_iter = dir_entries.items()
+            # Remove stale index pages and render HTML for every directory (CPU-only).
+            pages_to_save: list = []
+            for dir_path, entries in dir_entries.items():
+                if dir_path in existing_index_pks:
+                    new_version.remove_content(
+                        MavenIndexPage.objects.filter(pk=existing_index_pks[dir_path])
+                    )
+                directory_list = set(entries.keys())
+                if not directory_list:
+                    continue
+                dates = {name: e["date"] for name, e in entries.items()}
+                sizes = {name: e["size"] for name, e in entries.items() if e["size"] is not None}
+                html_bytes = Handler.render_html(
+                    directory_list, path=dir_path, dates=dates, sizes=sizes
+                ).encode("utf-8")
+                pages_to_save.append((dir_path, html_bytes))
+
+            # Batch-save artifacts: one IN query per 1 000 sha256s to find existing
+            # artifacts, then temp-file + upload only for genuinely new content.
+            # Follows the same pattern as pulpcore's sync pipeline ArtifactSaver stage.
+            dir_to_artifact = _save_artifacts_batch(pages_to_save, self.pulp_domain)
+
+            # Batch DB writes: one MavenIndexPage per directory, bulk ContentArtifacts,
+            # one add_content call for the entire set.
+            new_page_pks: list = []
+            cas_to_create: list = []
+            for dir_path, artifact in dir_to_artifact.items():
+                page = MavenIndexPage(
+                    path=dir_path,
+                    sha256=artifact.sha256,
+                    _pulp_domain=self.pulp_domain,
+                )
+                try:
+                    with transaction.atomic():
+                        page.save()
+                except IntegrityError:
+                    page = MavenIndexPage.objects.get(
+                        path=dir_path,
+                        sha256=artifact.sha256,
+                        _pulp_domain=self.pulp_domain,
+                    )
+                new_page_pks.append(page.pk)
+                cas_to_create.append(
+                    ContentArtifact(
+                        artifact=artifact,
+                        content=page,
+                        relative_path=f"{dir_path}index.html",
+                    )
+                )
+
+            ContentArtifact.objects.bulk_create(cas_to_create, ignore_conflicts=True)
+            if new_page_pks:
+                new_version.add_content(MavenIndexPage.objects.filter(pk__in=new_page_pks))
+            return
+
         else:
             # Incremental path (finalize_new_version with a small diff): issue one
             # targeted query per affected directory.  Loading all CAs for the entire
