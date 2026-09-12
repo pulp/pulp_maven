@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.27.3 (2026-09-12) {: #0.27.3 }
+
+#### Bugfixes {: #0.27.3-bugfix }
+
+- Fixed repair_index_pages storing artifacts in the default domain instead of the repository's domain when uploading in parallel, causing FileNotFoundError when the content app tried to serve the generated index pages.
+  [#465](https://github.com/pulp/pulp_maven/issues/465)
+
+---
+
 ## 0.27.2 (2026-09-12) {: #0.27.2 }
 
 #### Bugfixes {: #0.27.2-bugfix }
