@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.27.2 (2026-09-12) {: #0.27.2 }
+
+#### Bugfixes {: #0.27.2-bugfix }
+
+- Fixed [Errno 24] Too many open files crash in repair_index_pages by computing sha256 in memory before creating a temporary file, allowing existing artifacts to be returned immediately without opening any file descriptors.
+  [#461](https://github.com/pulp/pulp_maven/issues/461)
+
+---
+
 ## 0.27.1 (2026-09-11) {: #0.27.1 }
 
 #### Bugfixes {: #0.27.1-bugfix }
