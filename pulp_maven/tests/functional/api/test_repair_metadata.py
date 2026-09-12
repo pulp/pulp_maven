@@ -755,3 +755,168 @@ def test_repair_index_pages_idempotent(
             f"{path} HTML changed between first and second repair — "
             "batch existence-check may be returning wrong artifacts"
         )
+
+
+def test_repair_index_pages_domain_context(
+    pulpcore_bindings,
+    maven_bindings,
+    maven_repo_api_client,
+    maven_artifact_api_client,
+    random_artifact_factory,
+    monitor_task,
+    domain_factory,
+    gen_object_with_cleanup,
+):
+    """repair_index_pages stores artifacts in the repository's domain storage path.
+
+    Regression test for https://github.com/pulp/pulp_maven/issues/468:
+    ThreadPoolExecutor workers did not inherit ContextVar values from the calling
+    thread, so get_domain() fell back to the default domain and artifacts were
+    written to the default domain's storage path instead of the repository's
+    domain path.
+
+    Verification strategy:
+    1. Add content — finalize_new_version auto-generates index pages.
+    2. Strip those pages and run orphan cleanup so the backing artifacts are
+       deleted from storage, forcing repair_index_pages to create fresh ones
+       via the parallel ThreadPoolExecutor upload path (the buggy code path).
+    3. Assert the pages are gone before repair runs.
+    4. Run repair_index_pages and look up each generated MavenIndexPage.
+    5. Use ArtifactsApi.list(sha256=..., pulp_domain=domain_name) to verify
+       each artifact exists in the non-default domain with a storage path
+       starting with 'artifact/{domain_uuid}/' and is absent from the default.
+
+    Not marked parallel: orphan cleanup must run between the strip and repair
+    steps without interference from concurrent tests.
+
+    A content-app download is NOT used as proof: when domains share a storage
+    bucket the file is accessible at the wrong path too, so only artifact.file
+    in the database is authoritative.
+    """
+    domain = domain_factory()
+    domain_name = domain.name
+    domain_uuid = domain.pulp_href.rstrip("/").split("/")[-1]
+    uid = uuid.uuid4().hex[:8]
+
+    # Create a Maven repository in the non-default domain.
+    repo = gen_object_with_cleanup(
+        maven_repo_api_client,
+        {"name": str(uuid.uuid4())},
+        pulp_domain=domain_name,
+    )
+
+    # Upload a JAR artifact so repair_index_pages has content to index.
+    artifact = random_artifact_factory(size=64, pulp_domain=domain_name)
+    content = maven_artifact_api_client.upload(
+        artifact=artifact.pulp_href,
+        relative_path=f"com/{uid}/domain-lib/1.0.0/domain-lib-1.0.0.jar",
+        pulp_domain=domain_name,
+    )
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href,
+            {"add_content_units": [content.pulp_href]},
+        ).task
+    )
+
+    # finalize_new_version auto-generates index pages when content is added.
+    # Strip them so repair_index_pages must create fresh artifacts via the
+    # parallel ThreadPoolExecutor upload path — the code path that had the bug.
+    repo = maven_repo_api_client.read(repo.pulp_href)
+    auto_pages = maven_bindings.ContentMavenIndexPageApi.list(
+        repository_version=repo.latest_version_href,
+        pulp_domain=domain_name,
+        limit=100,
+    )
+    assert auto_pages.count > 0, "Expected finalize_new_version to have generated index pages"
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href,
+            {"remove_content_units": [p.pulp_href for p in auto_pages.results]},
+        ).task
+    )
+
+    # Confirm the pages are gone from the repository version.
+    repo = maven_repo_api_client.read(repo.pulp_href)
+    remaining = maven_bindings.ContentMavenIndexPageApi.list(
+        repository_version=repo.latest_version_href,
+        pulp_domain=domain_name,
+        limit=1,
+    )
+    assert remaining.count == 0, (
+        f"Expected 0 index pages in domain '{domain_name}' after strip, got {remaining.count}"
+    )
+
+    # remove_content_units creates a new repo version, leaving the previous version
+    # (which held the auto-generated pages) intact.  Delete that historical version
+    # so the MavenIndexPage content units are no longer referenced by any version and
+    # become true orphans — eligible for deletion by orphan cleanup.
+    all_versions = maven_bindings.RepositoriesMavenVersionsApi.list(repo.pulp_href)
+    for version in all_versions.results:
+        if version.pulp_href != repo.latest_version_href:
+            monitor_task(maven_bindings.RepositoriesMavenVersionsApi.delete(version.pulp_href).task)
+
+    # Capture sha256 values before orphan cleanup deletes the content objects.
+    auto_page_sha256s = [p.sha256 for p in auto_pages.results]
+
+    # Run orphan cleanup so the backing Artifact objects are deleted from storage.
+    # Without this, repair_index_pages would find the existing artifacts via the
+    # sha256 batch check and skip uploading — never exercising the buggy code path.
+    monitor_task(
+        pulpcore_bindings.OrphansCleanupApi.cleanup(
+            {"orphan_protection_time": 0}, pulp_domain=domain_name
+        ).task
+    )
+
+    # Confirm the artifacts are truly gone from the domain — not just absent from
+    # the repository version.  Uses ArtifactsApi without a repository_version filter
+    # so it checks the domain's entire artifact store.
+    for sha256 in auto_page_sha256s:
+        still_present = pulpcore_bindings.ArtifactsApi.list(
+            sha256=sha256, pulp_domain=domain_name, limit=1
+        )
+        assert still_present.count == 0, (
+            f"Artifact sha256={sha256} still present in domain '{domain_name}' "
+            "after orphan cleanup — repair_index_pages would reuse it instead of "
+            "uploading fresh, so the parallel upload path would not be exercised."
+        )
+
+    # Run repair_index_pages in the non-default domain context.
+    # Methods that take a pulp_href do not need pulp_domain — the domain is
+    # already encoded in the href (e.g. /pulp/{domain}/api/v3/repositories/...).
+    monitor_task(maven_repo_api_client.repair_index_pages(repo.pulp_href).task)
+    repo = maven_repo_api_client.read(repo.pulp_href)
+
+    # Confirm repair produced pages in the repository version.
+    repaired_pages = maven_bindings.ContentMavenIndexPageApi.list(
+        repository_version=repo.latest_version_href,
+        pulp_domain=domain_name,
+        limit=1,
+    )
+    assert repaired_pages.count > 0, f"No index pages found in domain '{domain_name}' after repair"
+
+    # For each sha256 that belonged to the auto-generated pages (captured before
+    # orphan cleanup), verify that repair_index_pages wrote the artifact to the
+    # non-default domain and NOT to the default domain.  These are the exact
+    # sha256s we confirmed were absent from the domain after cleanup, so finding
+    # them now in the non-default domain proves repair uploaded fresh artifacts
+    # via the parallel ThreadPoolExecutor path — in the correct domain context.
+    expected_prefix = f"artifact/{domain_uuid}/"
+    for sha256 in auto_page_sha256s:
+        in_domain = pulpcore_bindings.ArtifactsApi.list(
+            sha256=sha256, pulp_domain=domain_name, limit=1
+        )
+        assert in_domain.count == 1, (
+            f"Artifact sha256={sha256} not found in domain '{domain_name}' after repair. "
+            "The artifact may have been saved to the wrong domain (issue #468)."
+        )
+        stored_path = in_domain.results[0].file
+        assert stored_path.startswith(expected_prefix), (
+            f"Artifact sha256={sha256} stored at wrong path '{stored_path}' — "
+            f"expected prefix '{expected_prefix}' (issue #468)."
+        )
+        in_default = pulpcore_bindings.ArtifactsApi.list(sha256=sha256, limit=1)
+        assert in_default.count == 0, (
+            f"Artifact sha256={sha256} found in DEFAULT domain — "
+            f"it should only exist in domain '{domain_name}' (issue #468)."
+        )
