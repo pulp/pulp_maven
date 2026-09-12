@@ -1,0 +1,1 @@
+Fixed repair_index_pages storing artifacts in the default domain instead of the repository's domain when uploading in parallel, causing FileNotFoundError when the content app tried to serve the generated index pages.
