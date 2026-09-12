@@ -167,9 +167,20 @@ def _save_artifacts_batch(pages, pulp_domain):
     ]
 
     if new_items:
+        import contextvars
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
+        # ContextVar values (including the domain context set by pulpcore's task
+        # runner) do NOT propagate to ThreadPoolExecutor worker threads.  Copy the
+        # current context explicitly so that get_domain() inside each worker returns
+        # the correct domain — without this, get_artifact_path() falls back to the
+        # default domain and stores files at the wrong S3 path.
+        ctx = contextvars.copy_context()
+
         def _upload(digest, html_bytes):
+            return ctx.run(_do_upload, digest, html_bytes)
+
+        def _do_upload(digest, html_bytes):
             return digest, _save_artifact(html_bytes, pulp_domain)
 
         with ThreadPoolExecutor(max_workers=20) as pool:
