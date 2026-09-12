@@ -119,6 +119,68 @@ def _save_artifact(content_bytes, pulp_domain):
     return artifact
 
 
+def _save_artifacts_batch(pages, pulp_domain):
+    """Save a collection of (dir_path, html_bytes) pairs as Artifacts.
+
+    Follows the same pattern as pulpcore's sync pipeline ArtifactSaver stage:
+    batch-query which sha256 digests already exist, then only open temp files
+    for genuinely new content.  This avoids the file-descriptor accumulation that
+    occurs when checking existence one-at-a-time in a tight loop — existing
+    artifacts are returned with zero file opens.
+
+    Args:
+        pages: iterable of (dir_path, html_bytes) pairs.
+        pulp_domain: the Domain instance to scope Artifacts to.
+
+    Returns:
+        dict mapping dir_path -> Artifact.
+    """
+    # Map each unique sha256 to one representative (dir_path, html_bytes).
+    # Multiple directories can share the same sha256 (identical listings).
+    sha256_to_repr: dict = {}
+    dir_to_sha256: dict = {}
+    for dir_path, html_bytes in pages:
+        digest = hashlib.sha256(html_bytes).hexdigest()
+        dir_to_sha256[dir_path] = digest
+        if digest not in sha256_to_repr:
+            sha256_to_repr[digest] = (dir_path, html_bytes)
+
+    # Batch-check existence — one DB query per 1 000 sha256s to keep
+    # the IN clause at a manageable size.
+    sha256_to_artifact: dict = {}
+    all_digests = list(sha256_to_repr.keys())
+    for i in range(0, len(all_digests), 1000):
+        for artifact in Artifact.objects.filter(
+            sha256__in=all_digests[i : i + 1000],
+            pulp_domain=pulp_domain,
+        ):
+            sha256_to_artifact[artifact.sha256] = artifact
+
+    # Upload only the artifacts that do not already exist, in parallel.
+    # _save_artifact is thread-safe (transaction.atomic() with IntegrityError handling).
+    # Each worker opens at most two fds (NamedTemporaryFile + init_and_validate),
+    # both closed before the call returns, so there is no fd accumulation.
+    new_items = [
+        (digest, html_bytes)
+        for digest, (_, html_bytes) in sha256_to_repr.items()
+        if digest not in sha256_to_artifact
+    ]
+
+    if new_items:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _upload(digest, html_bytes):
+            return digest, _save_artifact(html_bytes, pulp_domain)
+
+        with ThreadPoolExecutor(max_workers=20) as pool:
+            futs = {pool.submit(_upload, d, h): d for d, h in new_items}
+            for fut in as_completed(futs):
+                digest, artifact = fut.result()
+                sha256_to_artifact[digest] = artifact
+
+    return {dir_path: sha256_to_artifact[digest] for dir_path, digest in dir_to_sha256.items()}
+
+
 async def aadd_and_remove(*args, **kwargs):
     return await sync_to_async(add_and_remove)(*args, **kwargs)
 

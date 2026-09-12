@@ -1,0 +1,1 @@
+Fixed [Errno 24] Too many open files crash in repair_index_pages by computing sha256 in memory before creating a temporary file, allowing existing artifacts to be returned immediately without opening any file descriptors.
