@@ -80,7 +80,7 @@ if [ "$TEST" = "s3" ]; then
   MINIO_SECRET_KEY=fqRvjWaPU5o0fCqQuUWbj9Fainj2pVZtBCiDiieS
   cat >> .ci/ansible/vars/main.yaml << VARSYAML
   - name: "minio"
-    image: "quay.io/minio/minio"
+    image: "minio/minio"
     env:
       MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY}"
       MINIO_SECRET_KEY: "${MINIO_SECRET_KEY}"
