@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.27.5 (2026-09-14) {: #0.27.5 }
+
+#### Bugfixes {: #0.27.5-bugfix }
+
+- Fixed finalize_new_version performance regression: the incremental _generate_index_pages path now fetches rc_dates only for encountered content IDs (not the entire version) and uploads HTML artifacts in parallel via _save_artifacts_batch instead of sequential S3 calls.
+  [#473](https://github.com/pulp/pulp_maven/issues/473)
+
+---
+
 ## 0.27.4 (2026-09-12) {: #0.27.4 }
 
 #### Bugfixes {: #0.27.4-bugfix }
