@@ -1,0 +1,1 @@
+Added ability to configure a bloom filter on repositories to speed up requests to non-existant content. Add the pulp-label 'pulp_maven.bloom: <est_num_items>,<false_postive_rate>' to a repository to generate its filter.

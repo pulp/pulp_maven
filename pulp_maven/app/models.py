@@ -6,6 +6,8 @@ from os import path
 
 from django.contrib.postgres.indexes import GinIndex
 from django.db import IntegrityError, models, transaction
+from django_lifecycle import AFTER_CREATE, AFTER_UPDATE, hook
+from probables import BloomFilter
 
 from pulpcore.plugin.models import (
     AutoAddObjPermsMixin,
@@ -323,7 +325,9 @@ class MavenDistribution(Distribution, AutoAddObjPermsMixin):
         Instead, read the small HTML bytes here and return an inline response so that
         directory listings are always served directly, regardless of storage backend.
         """
-        from aiohttp.web import HTTPMovedPermanently, Response
+        from os.path import join
+
+        from aiohttp.web import HTTPMovedPermanently, HTTPNotFound, Response
 
         from pulpcore.plugin.models import ContentArtifact
 
@@ -338,6 +342,19 @@ class MavenDistribution(Distribution, AutoAddObjPermsMixin):
         if version is None:
             return None
 
+        if self.repository_id and self.remote_id is None:
+            # Check the bloom filter for the repository if configured
+            if bloom_filter_hex := self.repository.pulp_labels.get("pulp_maven.bloom_filter"):
+                bloom_filter = BloomFilter(hex_string=bloom_filter_hex)
+                for p in (path, join(path, "index.html")):
+                    if bloom_filter.check(p):
+                        break
+                else:
+                    # Cache the 404 response for the bloom filtered path
+                    class BloomFiltered(HTTPNotFound):
+                        cacheable = True
+
+                    raise BloomFiltered(headers={"X-Pulp-Bloom-Filtered": "True"})
         # For paths WITHOUT a trailing slash, check whether a pre-generated index page
         # exists.  If so issue a redirect to the trailing-slash form; the next request
         # will be served inline by the branch below.  The normal fallback (line ~851 in
@@ -460,6 +477,15 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
             self._ensure_packages(new_version)
             self._generate_metadata(new_version)
             self._generate_index_pages(new_version)
+            self._generate_bloom_filter(new_version)
+
+    @hook(AFTER_CREATE)
+    @hook(AFTER_UPDATE, when="pulp_labels", has_changed=True)
+    def update_bloom_filter(self):
+        """Update the Bloom filter for the repository if configured."""
+        from pulp_maven.app.tasks import generate_bloom_filter
+
+        generate_bloom_filter(self.pk)
 
     def _ensure_packages(self, new_version):
         """Manage MavenPackage version membership. Creates missing packages when a POM is available."""
@@ -997,6 +1023,12 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
             ContentArtifact.objects.bulk_create(cas_to_create, ignore_conflicts=True)
             if new_page_pks:
                 new_version.add_content(MavenIndexPage.objects.filter(pk__in=new_page_pks))
+
+    def _generate_bloom_filter(self, new_version):
+        """Generate the Bloom filter for the repository if configured."""
+        from pulp_maven.app.tasks import _generate_bloom_filter
+
+        _generate_bloom_filter(self, new_version)
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
