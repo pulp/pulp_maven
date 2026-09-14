@@ -8,6 +8,14 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.29.0 (2026-09-14) {: #0.29.0 }
+
+#### Features {: #0.29.0-feature }
+
+- Added ability to configure a bloom filter on repositories to speed up requests to non-existant content. Add the pulp-label 'pulp_maven.bloom: <est_num_items>,<false_postive_rate>' to a repository to generate its filter.
+
+---
+
 ## 0.27.4 (2026-09-12) {: #0.27.4 }
 
 #### Bugfixes {: #0.27.4-bugfix }
