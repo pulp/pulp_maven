@@ -3,11 +3,13 @@ import hashlib
 import logging
 import tempfile
 from collections import defaultdict
+from math import isclose
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from asgiref.sync import sync_to_async
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from probables import BloomFilter
 
 from pulpcore.plugin.models import (
     Artifact,
@@ -611,3 +613,63 @@ def _create_version_level_metadata_content(group_id, artifact_id, version, filen
     return _save_metadata_content(
         group_id, artifact_id, version, base_path, metadata_xml, pulp_domain
     )
+
+
+def _generate_bloom_filter(repository, version):
+    """
+    Generate the Bloom filter for the repository if configured.
+
+    The bloom filter is stored in pulp-labels
+        `pulp_maven.bloom_filter : <hex_encoded_bloom_filter>`
+    and enabled by the label
+        `pulp_maven.bloom : <est_num_items>,<false_positive_rate>`
+
+    If the bloom filter is not present, or the estimated number of items or false positive rate has
+    changed, the bloom filter needs to be rebuilt. Also rebuild if the amount of content is now
+    greater than the size of the bloom filter.
+    """
+    if not (config := repository.pulp_labels.get("pulp_maven.bloom")):
+        log.warning("Bloom filter configuration not found for repository %s", repository.name)
+        return
+    if len(config.split(",")) != 2:
+        log.warning("Invalid bloom filter configuration for repository %s", repository.name)
+        return
+    est_num_items, false_positive_rate = config.split(",")
+    est_num_items = int(est_num_items)
+    false_positive_rate = float(false_positive_rate)
+
+    if bloom_filter_hex := repository.pulp_labels.get("pulp_maven.bloom_filter"):
+        bloom_filter = BloomFilter(hex_string=bloom_filter_hex)
+        eq_fpr = isclose(
+            bloom_filter.false_positive_rate, false_positive_rate, rel_tol=1e-6, abs_tol=1e-12
+        )
+        if bloom_filter.estimated_elements == est_num_items and eq_fpr:
+            num_content = ContentArtifact.objects.filter(content__in=version.content).count()
+            if num_content < bloom_filter.estimated_elements:
+                # Add the new content to the bloom filter
+                for ca in ContentArtifact.objects.filter(content__in=version.added()):
+                    bloom_filter.add(ca.relative_path)
+                repository.pulp_labels["pulp_maven.bloom_filter"] = bloom_filter.export_hex()
+                repository.save(update_fields=["pulp_labels"], skip_hooks=True)
+                return
+            else:
+                # The amount of content is greater than the bloom filter, update est_num_items for rebuild
+                est_num_items = num_content + 500
+
+    # Bloom filter needs to be created/rebuilt
+    bloom_filter = BloomFilter(est_elements=est_num_items, false_positive_rate=false_positive_rate)
+    for ca in ContentArtifact.objects.filter(content__in=version.content):
+        bloom_filter.add(ca.relative_path)
+    repository.pulp_labels["pulp_maven.bloom"] = f"{est_num_items},{false_positive_rate}"
+    repository.pulp_labels["pulp_maven.bloom_filter"] = bloom_filter.export_hex()
+    repository.save(update_fields=["pulp_labels"], skip_hooks=True)
+
+
+def generate_bloom_filter(repository_pk):
+    """Task to generate the Bloom filter for a repository."""
+    repository = MavenRepository.objects.get(pk=repository_pk)
+    latest_version = repository.latest_version()
+    if not latest_version:
+        log.warning("No latest version found for repository %s", repository.name)
+        return
+    _generate_bloom_filter(repository, latest_version)

@@ -425,6 +425,8 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
 
     queryset_filtering_required_permission = "maven.view_mavenrepository"
 
+    ALLOW_NON_BLOCKING_UPDATE = False
+
     DEFAULT_ACCESS_POLICY = {  # noqa: RUF012
         "statements": [
             {
