@@ -1,1 +1,0 @@
-Fixed finalize_new_version performance regression: the incremental _generate_index_pages path now fetches rc_dates only for encountered content IDs (not the entire version) and uploads HTML artifacts in parallel via _save_artifacts_batch instead of sequential S3 calls.
