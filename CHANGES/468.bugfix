@@ -1,1 +1,0 @@
-Fixed repair_index_pages crashing with "cannot enter context: already entered" when uploading artifacts in parallel. A shared contextvars.Context object cannot be entered concurrently by multiple ThreadPoolExecutor threads; replaced ctx.run() with set_domain() called at the start of each worker thread instead.
