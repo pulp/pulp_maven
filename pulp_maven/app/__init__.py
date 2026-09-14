@@ -6,6 +6,6 @@ class PulpMavenPluginAppConfig(PulpPluginAppConfig):
 
     name = "pulp_maven.app"
     label = "maven"
-    version = "0.27.5"
+    version = "0.27.6.dev"
     python_package_name = "pulp-maven"
     domain_compatible = True
