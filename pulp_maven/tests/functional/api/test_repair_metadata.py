@@ -897,10 +897,17 @@ def test_repair_index_pages_domain_context(
 
     # For each sha256 that belonged to the auto-generated pages (captured before
     # orphan cleanup), verify that repair_index_pages wrote the artifact to the
-    # non-default domain and NOT to the default domain.  These are the exact
     # sha256s we confirmed were absent from the domain after cleanup, so finding
     # them now in the non-default domain proves repair uploaded fresh artifacts
     # via the parallel ThreadPoolExecutor path — in the correct domain context.
+    #
+    # Note: we do NOT assert absence from the default domain here.  Simple index
+    # pages (e.g., the root listing containing only "com/") can have identical
+    # HTML across tests, meaning a concurrently-running or previously-run test
+    # may have created an artifact with the same sha256 in the default domain.
+    # Asserting it is absent there would be a false negative.  The authoritative
+    # check is that the artifact IS in the non-default domain at the expected
+    # domain-specific storage path.
     expected_prefix = f"artifact/{domain_uuid}/"
     for sha256 in auto_page_sha256s:
         in_domain = pulpcore_bindings.ArtifactsApi.list(
@@ -914,9 +921,4 @@ def test_repair_index_pages_domain_context(
         assert stored_path.startswith(expected_prefix), (
             f"Artifact sha256={sha256} stored at wrong path '{stored_path}' — "
             f"expected prefix '{expected_prefix}' (issue #468)."
-        )
-        in_default = pulpcore_bindings.ArtifactsApi.list(sha256=sha256, limit=1)
-        assert in_default.count == 0, (
-            f"Artifact sha256={sha256} found in DEFAULT domain — "
-            f"it should only exist in domain '{domain_name}' (issue #468)."
         )
