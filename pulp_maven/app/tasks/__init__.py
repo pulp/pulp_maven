@@ -650,7 +650,7 @@ def _generate_bloom_filter(repository, version):
                 for ca in ContentArtifact.objects.filter(content__in=version.added()):
                     bloom_filter.add(ca.relative_path)
                 repository.pulp_labels["pulp_maven.bloom_filter"] = bloom_filter.export_hex()
-                repository.save(update_fields=["pulp_labels"], skip_hooks=True)
+                repository.save(update_fields=["pulp_labels", "pulp_last_updated"], skip_hooks=True)
                 return
             else:
                 # The amount of content is greater than the bloom filter, update est_num_items for rebuild
@@ -662,7 +662,7 @@ def _generate_bloom_filter(repository, version):
         bloom_filter.add(ca.relative_path)
     repository.pulp_labels["pulp_maven.bloom"] = f"{est_num_items},{false_positive_rate}"
     repository.pulp_labels["pulp_maven.bloom_filter"] = bloom_filter.export_hex()
-    repository.save(update_fields=["pulp_labels"], skip_hooks=True)
+    repository.save(update_fields=["pulp_labels", "pulp_last_updated"], skip_hooks=True)
 
 
 def generate_bloom_filter(repository_pk):

@@ -1,2 +1,3 @@
 mock
 pytest<10
+pytest-django

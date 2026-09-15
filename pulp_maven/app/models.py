@@ -26,6 +26,24 @@ logger = getLogger(__name__)
 # finalize_new_version delays version creation and races with subsequent reads.
 _pull_through_ctx = threading.local()
 
+# Global used to store instantiated Bloom filters to avoid parsing them on every request.
+bloom_filters = {}
+
+
+def get_bloom_filter(repository):
+    """Return a repository's cached Bloom filter, if configured."""
+    if not (bloom_filter_hex := repository.pulp_labels.get("pulp_maven.bloom_filter")):
+        return None
+
+    if date_bloom_filter_tuple := bloom_filters.get(repository.pulp_id):
+        last_updated, bloom_filter = date_bloom_filter_tuple
+        if repository.pulp_last_updated == last_updated:
+            return bloom_filter
+
+    bloom_filter = BloomFilter(hex_string=bloom_filter_hex)
+    bloom_filters[repository.pulp_id] = (repository.pulp_last_updated, bloom_filter)
+    return bloom_filter
+
 
 class MavenContentMixin:
     @staticmethod
@@ -344,8 +362,7 @@ class MavenDistribution(Distribution, AutoAddObjPermsMixin):
 
         if self.repository_id and self.remote_id is None:
             # Check the bloom filter for the repository if configured
-            if bloom_filter_hex := self.repository.pulp_labels.get("pulp_maven.bloom_filter"):
-                bloom_filter = BloomFilter(hex_string=bloom_filter_hex)
+            if bloom_filter := get_bloom_filter(self.repository):
                 for p in (path, join(path, "index.html")):
                     if bloom_filter.check(p):
                         break
