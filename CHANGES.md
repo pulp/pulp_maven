@@ -8,6 +8,45 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.29.0 (2026-09-14) {: #0.29.0 }
+
+#### Features {: #0.29.0-feature }
+
+- Added ability to configure a bloom filter on repositories to speed up requests to non-existant content. Add the pulp-label 'pulp_maven.bloom: <est_num_items>,<false_postive_rate>' to a repository to generate its filter.
+
+---
+
+## 0.28.0 (2026-09-14) {: #0.28.0 }
+
+#### Features {: #0.28.0-feature }
+
+- Added ``search`` (contains on ``group_id``/``artifact_id``; ``group:artifact`` ANDs the two sides), ``last_updated``, and ``ordering`` on the repository package catalog. Catalog ``versions`` and ``latest_releases`` are newest-first. Creates the ``pg_trgm`` extension and GIN trigram indexes on ``group_id`` and ``artifact_id``. A trailing ``.letters-...`` last-segment version suffix is a rebuild qualifier, so ``5.3.17.rhlw-00001`` and ``5.3.17.rhlw-00001-n0001`` share base version ``5.3.17``.
+  [#450](https://github.com/pulp/pulp_maven/issues/450)
+
+#### Bugfixes {: #0.28.0-bugfix }
+
+- Fixed O(N-directories) database query pattern in _generate_index_pages; all ContentArtifacts are now fetched in a single query and directory listings are computed in Python, reducing repair_index_pages runtime from hours to minutes for large repositories.
+  [#458](https://github.com/pulp/pulp_maven/issues/458)
+- Fixed [Errno 24] Too many open files crash in repair_index_pages by computing sha256 in memory before creating a temporary file, allowing existing artifacts to be returned immediately without opening any file descriptors.
+  [#461](https://github.com/pulp/pulp_maven/issues/461)
+- Fixed repair_index_pages storing artifacts in the default domain instead of the repository's domain when uploading in parallel, causing FileNotFoundError when the content app tried to serve the generated index pages.
+  [#465](https://github.com/pulp/pulp_maven/issues/465)
+- Fixed repair_index_pages crashing with "cannot enter context: already entered" when uploading artifacts in parallel. A shared contextvars.Context object cannot be entered concurrently by multiple ThreadPoolExecutor threads; replaced ctx.run() with set_domain() called at the start of each worker thread instead.
+  [#468](https://github.com/pulp/pulp_maven/issues/468)
+- Fixed finalize_new_version performance regression: the incremental _generate_index_pages path now fetches rc_dates only for encountered content IDs (not the entire version) and uploads HTML artifacts in parallel via _save_artifacts_batch instead of sequential S3 calls.
+  [#473](https://github.com/pulp/pulp_maven/issues/473)
+
+---
+
+## 0.27.5 (2026-09-14) {: #0.27.5 }
+
+#### Bugfixes {: #0.27.5-bugfix }
+
+- Fixed finalize_new_version performance regression: the incremental _generate_index_pages path now fetches rc_dates only for encountered content IDs (not the entire version) and uploads HTML artifacts in parallel via _save_artifacts_batch instead of sequential S3 calls.
+  [#473](https://github.com/pulp/pulp_maven/issues/473)
+
+---
+
 ## 0.27.4 (2026-09-12) {: #0.27.4 }
 
 #### Bugfixes {: #0.27.4-bugfix }
