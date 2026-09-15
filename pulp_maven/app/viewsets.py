@@ -607,6 +607,20 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
                     "Ordering by group_id without artifact_id also sorts by artifact_id."
                 ),
             ),
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Number of results to return per page.",
+            ),
+            OpenApiParameter(
+                name="offset",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="The initial index from which to return the results.",
+            ),
         ],
         responses={
             200: inline_serializer(
