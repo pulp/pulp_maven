@@ -721,7 +721,7 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
         from pulpcore.plugin.content import Handler
         from pulpcore.plugin.models import ContentArtifact, RemoteArtifact
 
-        from pulp_maven.app.tasks import _save_artifact, _save_artifacts_batch
+        from pulp_maven.app.tasks import _save_artifacts_batch
 
         # Track whether the caller passed an explicit path set (the repair case).
         # The two strategies below are chosen based on this flag.
@@ -763,12 +763,6 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
         if not affected_paths:
             return
 
-        # Pre-fetch RepositoryContent dates once (one query instead of one per directory).
-        rc_dates = {
-            rc.content_id: rc.pulp_created
-            for rc in new_version._content_relationships().only("content_id", "pulp_created")
-        }
-
         # Pre-fetch all existing index pages so we can remove stale ones without
         # issuing one EXISTS query per directory.
         existing_index_pks = {
@@ -779,6 +773,12 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
         }
 
         if bulk_mode:
+            # Bulk mode: load rc_dates for all content in the version upfront.
+            # Acceptable here because repair already touches the full version.
+            rc_dates = {
+                rc.content_id: rc.pulp_created
+                for rc in new_version._content_relationships().only("content_id", "pulp_created")
+            }
             # Repair / full-repository path: fetch ALL ContentArtifacts in one query,
             # build all directory listings in Python, batch-save artifacts, then
             # batch-write DB rows.
@@ -875,95 +875,122 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
             return
 
         else:
-            # Incremental path (finalize_new_version with a small diff): issue one
-            # targeted query per affected directory.  Loading all CAs for the entire
-            # version would be wasteful when only a handful of paths changed.
-            def _incremental_iter():
-                for dir_path in affected_paths:
-                    cas = (
-                        ContentArtifact.objects.select_related("artifact")
-                        .filter(
-                            content__in=new_version.content,
-                            relative_path__startswith=dir_path,
-                        )
-                        .exclude(content__pulp_type="maven.index-page")
-                    )
-                    import re as _re
-
-                    pattern = _re.compile(r"({})([^\/]*)(\/*)".format(_re.escape(dir_path)))
-                    entries = {}
-                    artifacts_to_find = {}
-                    for ca in cas:
-                        m = pattern.match(ca.relative_path)
-                        if not m:
-                            continue
-                        name = "{}{}".format(m.group(2), m.group(3))
-                        if not name:
-                            continue
-                        ca_size = ca.artifact.size if ca.artifact else None
-                        if ca_size is None:
-                            artifacts_to_find[ca.pk] = name
-                        entries[name] = {
-                            "content_id": ca.content_id,
-                            "size": ca_size,
-                            "date": rc_dates.get(ca.content_id, ca.pulp_created),
-                        }
-                    if artifacts_to_find:
-                        for ra_ca_id, size in RemoteArtifact.objects.filter(
-                            content_artifact__in=artifacts_to_find.keys(), size__isnull=False
-                        ).values_list("content_artifact_id", "size"):
-                            entries[artifacts_to_find[ra_ca_id]]["size"] = size
-                    yield dir_path, entries
-
-            dir_iter = _incremental_iter()
-
-        for dir_path, entries in dir_iter:
-            # Remove the stale index page (uses pre-fetched dict, no extra DB query).
-            if dir_path in existing_index_pks:
-                new_version.remove_content(
-                    MavenIndexPage.objects.filter(pk=existing_index_pks[dir_path])
-                )
-
-            directory_list = set(entries.keys())
-
-            if not directory_list:
-                continue
-
-            dates = {name: e["date"] for name, e in entries.items()}
-            sizes = {name: e["size"] for name, e in entries.items() if e["size"] is not None}
-
-            html_bytes = Handler.render_html(
-                directory_list, path=dir_path, dates=dates, sizes=sizes
-            ).encode("utf-8")
-
-            artifact = _save_artifact(html_bytes, self.pulp_domain)
-
-            page = MavenIndexPage(
-                path=dir_path,
-                sha256=artifact.sha256,
-                _pulp_domain=self.pulp_domain,
+            # Incremental path (finalize_new_version): load ALL ContentArtifacts for
+            # the version in ONE query, build directory listings in Python for only the
+            # affected paths, then upload in parallel.
+            #
+            # A per-directory approach (one ContentArtifact query per affected directory
+            # with relative_path__startswith=dir_path) always does at least one
+            # full-version scan: the root directory ("") is in every affected_paths set
+            # and its startswith="" query loads every CA in the version.  This means the
+            # per-directory approach costs O(1 full scan + N-1 subtree scans), whereas
+            # the single-scan approach costs exactly O(1 full scan).  The single scan is
+            # never worse and becomes much better for large sync batches that touch
+            # hundreds of directories (e.g. a Jetty release touching 80+ modules).
+            #
+            # The original code ALSO pre-fetched rc_dates for all RepositoryContent
+            # (O(version_size)).  Now rc_dates is fetched only for the content IDs
+            # actually encountered in the affected directories.
+            all_cas = list(
+                ContentArtifact.objects.select_related("artifact")
+                .filter(content__in=new_version.content)
+                .exclude(content__pulp_type="maven.index-page")
             )
-            try:
-                with transaction.atomic():
-                    page.save()
-            except IntegrityError:
-                page = MavenIndexPage.objects.get(
+
+            # Resolve on-demand sizes (RemoteArtifact) in one query.
+            ca_pks_without_artifact = [ca.pk for ca in all_cas if not ca.artifact]
+            remote_sizes: dict = {}
+            if ca_pks_without_artifact:
+                for ra_ca_id, size in RemoteArtifact.objects.filter(
+                    content_artifact__in=ca_pks_without_artifact, size__isnull=False
+                ).values_list("content_artifact_id", "size"):
+                    remote_sizes[ra_ca_id] = size
+
+            # Build per-directory data in one Python pass.
+            # Only populate entries for directories in affected_paths.
+            dir_entries: dict = {dp: {} for dp in affected_paths}
+            all_content_ids: set = set()
+            for ca in all_cas:
+                parts = ca.relative_path.split("/")
+                ca_size = ca.artifact.size if ca.artifact else remote_sizes.get(ca.pk)
+                for i in range(len(parts)):
+                    dir_path = "" if i == 0 else "/".join(parts[:i]) + "/"
+                    if dir_path not in dir_entries:
+                        continue
+                    name = (parts[i] + "/") if i + 1 < len(parts) else parts[i]
+                    if not name:
+                        continue
+                    dir_entries[dir_path][name] = {
+                        "content_id": ca.content_id,
+                        "size": ca_size,
+                        "date": ca.pulp_created,  # placeholder; replaced below
+                    }
+                    all_content_ids.add(ca.content_id)
+
+            # Fetch rc_dates only for content IDs in affected directories — not the
+            # entire version's relationship table.
+            rc_dates = {
+                rc.content_id: rc.pulp_created
+                for rc in new_version._content_relationships()
+                .filter(content_id__in=all_content_ids)
+                .only("content_id", "pulp_created")
+            }
+
+            # Render HTML for every affected directory.
+            pages_to_save: list = []
+            for dir_path, entries in dir_entries.items():
+                for e in entries.values():
+                    e["date"] = rc_dates.get(e["content_id"], e["date"])
+                directory_list = set(entries.keys())
+                if not directory_list:
+                    continue
+                dates = {name: e["date"] for name, e in entries.items()}
+                sizes = {
+                    name: e["size"]
+                    for name, e in entries.items()
+                    if e["size"] is not None
+                }
+                html_bytes = Handler.render_html(
+                    directory_list, path=dir_path, dates=dates, sizes=sizes
+                ).encode("utf-8")
+                pages_to_save.append((dir_path, html_bytes))
+
+            # Pass 3: parallel uploads (same batch path as repair_index_pages).
+            dir_to_artifact = _save_artifacts_batch(pages_to_save, self.pulp_domain)
+
+            # Pass 4: write DB records.
+            new_page_pks: list = []
+            cas_to_create: list = []
+            for dir_path, artifact in dir_to_artifact.items():
+                if dir_path in existing_index_pks:
+                    new_version.remove_content(
+                        MavenIndexPage.objects.filter(pk=existing_index_pks[dir_path])
+                    )
+                page = MavenIndexPage(
                     path=dir_path,
                     sha256=artifact.sha256,
                     _pulp_domain=self.pulp_domain,
                 )
-
-            try:
-                with transaction.atomic():
-                    ContentArtifact.objects.create(
+                try:
+                    with transaction.atomic():
+                        page.save()
+                except IntegrityError:
+                    page = MavenIndexPage.objects.get(
+                        path=dir_path,
+                        sha256=artifact.sha256,
+                        _pulp_domain=self.pulp_domain,
+                    )
+                new_page_pks.append(page.pk)
+                cas_to_create.append(
+                    ContentArtifact(
                         artifact=artifact,
                         content=page,
                         relative_path=f"{dir_path}index.html",
                     )
-            except IntegrityError:
-                pass
-
-            new_version.add_content(MavenIndexPage.objects.filter(pk=page.pk))
+                )
+            ContentArtifact.objects.bulk_create(cas_to_create, ignore_conflicts=True)
+            if new_page_pks:
+                new_version.add_content(MavenIndexPage.objects.filter(pk__in=new_page_pks))
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"

@@ -183,7 +183,7 @@ def _save_artifacts_batch(pages, pulp_domain):
             set_domain(current_domain)
             return digest, _save_artifact(html_bytes, pulp_domain)
 
-        with ThreadPoolExecutor(max_workers=20) as pool:
+        with ThreadPoolExecutor(max_workers=10) as pool:
             futs = {pool.submit(_upload, d, h): d for d, h in new_items}
             for fut in as_completed(futs):
                 digest, artifact = fut.result()
