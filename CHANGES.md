@@ -8,6 +8,17 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.30.0 (2026-09-15) {: #0.30.0 }
+
+#### Removals {: #0.30.0-removal }
+
+- Removed the redundant ``add_cached_content`` action on Maven repositories. Content
+  cached via pull-through is now added to the repository automatically when streamed
+  from a remote, so the manual endpoint is no longer needed.
+  [#1939](https://github.com/pulp/pulp_maven/issues/1939)
+
+---
+
 ## 0.29.0 (2026-09-14) {: #0.29.0 }
 
 #### Features {: #0.29.0-feature }
