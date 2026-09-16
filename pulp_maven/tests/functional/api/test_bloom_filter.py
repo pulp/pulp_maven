@@ -5,6 +5,7 @@ from urllib.parse import urljoin
 
 import aiohttp
 import pytest
+from redis.exceptions import RedisError
 
 from pulp_maven.app.bloom import (
     BLOOM_FILTER_KEY_PREFIX,
@@ -21,6 +22,14 @@ FALSE_POSITIVE_RATE = 0.0001
 def require_redis(redis_status):
     if not redis_status:
         pytest.skip("Redis is disabled in this test scenario")
+
+    try:
+        command_info = get_redis_connection().execute_command("COMMAND", "INFO", "BF.RESERVE")
+    except (RedisError, TypeError):
+        pytest.skip("Redis/Valkey Bloom support is not installed")
+
+    if not command_info or isinstance(command_info, (list, tuple)) and not command_info[0]:
+        pytest.skip("Redis/Valkey Bloom support is not installed")
 
 
 def _upload_artifact(maven_artifact_api_client, random_artifact_factory):
