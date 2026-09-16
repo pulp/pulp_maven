@@ -5,13 +5,22 @@ from urllib.parse import urljoin
 
 import aiohttp
 import pytest
-from probables import BloomFilter
 
+from pulp_maven.app.bloom import (
+    BLOOM_FILTER_KEY_PREFIX,
+    get_redis_connection,
+    grown_bloom_filter_capacity,
+)
 from pulp_maven.tests.functional.utils import download_file
 
 BLOOM_LABEL = "pulp_maven.bloom"
-BLOOM_FILTER_LABEL = "pulp_maven.bloom_filter"
 FALSE_POSITIVE_RATE = 0.0001
+
+
+@pytest.fixture(autouse=True)
+def require_redis(redis_status):
+    if not redis_status:
+        pytest.skip("Redis is disabled in this test scenario")
 
 
 def _upload_artifact(maven_artifact_api_client, random_artifact_factory):
@@ -43,8 +52,22 @@ def _update_labels(maven_repo_api_client, monitor_task, repository, labels):
     return maven_repo_api_client.read(repository.pulp_href)
 
 
-def _read_filter(repository):
-    return BloomFilter(hex_string=repository.pulp_labels[BLOOM_FILTER_LABEL])
+def _filter_contains(repository, path):
+    return bool(get_redis_connection().execute_command("BF.EXISTS", _filter_key(repository), path))
+
+
+def _filter_info(repository):
+    return get_redis_connection().bf().info(_filter_key(repository))
+
+
+def _stored_filter_config(repository):
+    config = get_redis_connection().get(f"{_filter_key(repository)}:config")
+    return config.decode() if isinstance(config, bytes) else config
+
+
+def _filter_key(repository):
+    repository_pk = repository.pulp_href.rstrip("/").rsplit("/", 1)[-1]
+    return f"{BLOOM_FILTER_KEY_PREFIX}:{repository_pk}"
 
 
 def _content_artifact_count(
@@ -79,7 +102,7 @@ def test_filter_updates_for_each_content_addition(
     """Each repository version adds its new paths to the existing filter."""
     repository = maven_repo_factory(pulp_labels={BLOOM_LABEL: f"1000,{FALSE_POSITIVE_RATE}"})
     paths = []
-    previous_filter_hex = None
+    previous_inserted_count = 0
 
     for _ in range(2):
         content, relative_path = _upload_artifact(
@@ -90,13 +113,11 @@ def test_filter_updates_for_each_content_addition(
         paths.append(relative_path)
 
         repository = maven_repo_api_client.read(repository.pulp_href)
-        bloom_filter_hex = repository.pulp_labels[BLOOM_FILTER_LABEL]
-        bloom_filter = _read_filter(repository)
+        info = _filter_info(repository)
 
-        assert all(bloom_filter.check(path) for path in paths)
-        if previous_filter_hex is not None:
-            assert bloom_filter_hex != previous_filter_hex
-        previous_filter_hex = bloom_filter_hex
+        assert all(_filter_contains(repository, path) for path in paths)
+        assert info.insertedNum > previous_inserted_count
+        previous_inserted_count = info.insertedNum
 
 
 @pytest.mark.parallel
@@ -116,7 +137,7 @@ def test_changing_config_rebuilds_filter(
     _add_content(maven_repo_api_client, monitor_task, repository, content)
 
     repository = maven_repo_api_client.read(repository.pulp_href)
-    old_filter_hex = repository.pulp_labels[BLOOM_FILTER_LABEL]
+    old_filter_config = _stored_filter_config(repository)
     labels = dict(repository.pulp_labels)
     labels[BLOOM_LABEL] = f"2000,{FALSE_POSITIVE_RATE}"
     repository = _update_labels(
@@ -126,11 +147,10 @@ def test_changing_config_rebuilds_filter(
         labels,
     )
 
-    bloom_filter = _read_filter(repository)
-    assert repository.pulp_labels[BLOOM_FILTER_LABEL] != old_filter_hex
-    assert bloom_filter.estimated_elements == 2000
-    assert bloom_filter.false_positive_rate == pytest.approx(FALSE_POSITIVE_RATE)
-    assert bloom_filter.check(relative_path)
+    assert _stored_filter_config(repository) != old_filter_config
+    assert _stored_filter_config(repository) == f"2000,{FALSE_POSITIVE_RATE}"
+    assert _filter_info(repository).capacity == 2000
+    assert _filter_contains(repository, relative_path)
 
 
 @pytest.mark.parallel
@@ -165,7 +185,7 @@ def test_filter_rebuilds_when_content_exceeds_its_size(
         repository,
         {BLOOM_LABEL: f"{initial_size},{FALSE_POSITIVE_RATE}"},
     )
-    assert _read_filter(repository).estimated_elements == initial_size
+    assert _filter_info(repository).capacity == initial_size
 
     second_content, second_path = _upload_artifact(
         maven_artifact_api_client,
@@ -180,12 +200,12 @@ def test_filter_rebuilds_when_content_exceeds_its_size(
         maven_metadata_api_client,
         repository.latest_version_href,
     )
-    bloom_filter = _read_filter(repository)
     assert new_count > initial_size
-    assert bloom_filter.estimated_elements == new_count + 500
-    assert repository.pulp_labels[BLOOM_LABEL] == f"{new_count + 500},{FALSE_POSITIVE_RATE}"
-    assert bloom_filter.check(first_path)
-    assert bloom_filter.check(second_path)
+    grown_capacity = grown_bloom_filter_capacity(new_count)
+    assert _filter_info(repository).capacity == grown_capacity
+    assert repository.pulp_labels[BLOOM_LABEL] == f"{grown_capacity},{FALSE_POSITIVE_RATE}"
+    assert _filter_contains(repository, first_path)
+    assert _filter_contains(repository, second_path)
 
 
 @pytest.mark.parallel

@@ -3,13 +3,12 @@ import hashlib
 import logging
 import tempfile
 from collections import defaultdict
-from math import isclose
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from asgiref.sync import sync_to_async
 from django.db import IntegrityError, transaction
 from django.db.models import Q
-from probables import BloomFilter
+from redis.exceptions import RedisError
 
 from pulpcore.plugin.models import (
     Artifact,
@@ -17,6 +16,18 @@ from pulpcore.plugin.models import (
 )
 from pulpcore.plugin.tasking import add_and_remove
 
+from pulp_maven.app.bloom import (
+    BLOOM_FILTER_CONFIG_LABEL,
+    add_paths_to_bloom_filter,
+    bloom_filter_config_key,
+    bloom_filter_key,
+    get_redis_connection,
+    grown_bloom_filter_capacity,
+    mark_bloom_filter_not_ready,
+    parse_bloom_filter_config,
+    redis_bloom_filter_matches_config,
+    replace_bloom_filter,
+)
 from pulp_maven.app.models import (
     MavenArtifact,
     MavenMetadata,
@@ -588,50 +599,69 @@ def _generate_bloom_filter(repository, version):
     """
     Generate the Bloom filter for the repository if configured.
 
-    The bloom filter is stored in pulp-labels
-        `pulp_maven.bloom_filter : <hex_encoded_bloom_filter>`
-    and enabled by the label
+    The Bloom filter is stored in Redis and enabled by the label
         `pulp_maven.bloom : <est_num_items>,<false_positive_rate>`
 
-    If the bloom filter is not present, or the estimated number of items or false positive rate has
-    changed, the bloom filter needs to be rebuilt. Also rebuild if the amount of content is now
-    greater than the size of the bloom filter.
+    Rebuild the filter if it is missing, its configuration changed, or its capacity is exhausted.
     """
-    if not (config := repository.pulp_labels.get("pulp_maven.bloom")):
-        log.warning("Bloom filter configuration not found for repository %s", repository.name)
+    parsed_config = parse_bloom_filter_config(repository)
+    if parsed_config is None:
         return
-    if len(config.split(",")) != 2:
-        log.warning("Invalid bloom filter configuration for repository %s", repository.name)
-        return
-    est_num_items, false_positive_rate = config.split(",")
-    est_num_items = int(est_num_items)
-    false_positive_rate = float(false_positive_rate)
+    est_num_items, false_positive_rate = parsed_config
+    normalized_config = f"{est_num_items},{false_positive_rate}"
 
-    if bloom_filter_hex := repository.pulp_labels.get("pulp_maven.bloom_filter"):
-        bloom_filter = BloomFilter(hex_string=bloom_filter_hex)
-        eq_fpr = isclose(
-            bloom_filter.false_positive_rate, false_positive_rate, rel_tol=1e-6, abs_tol=1e-12
+    redis = get_redis_connection()
+    if redis is None:
+        log.warning(
+            "Redis is not configured; Bloom filter for repository %s was not updated",
+            repository.name,
         )
-        if bloom_filter.estimated_elements == est_num_items and eq_fpr:
-            num_content = ContentArtifact.objects.filter(content__in=version.content).count()
-            if num_content < bloom_filter.estimated_elements:
-                # Add the new content to the bloom filter
-                for ca in ContentArtifact.objects.filter(content__in=version.added()):
-                    bloom_filter.add(ca.relative_path)
-                repository.pulp_labels["pulp_maven.bloom_filter"] = bloom_filter.export_hex()
-                repository.save(update_fields=["pulp_labels", "pulp_last_updated"], skip_hooks=True)
-                return
-            else:
-                # The amount of content is greater than the bloom filter, update est_num_items for rebuild
-                est_num_items = num_content + 500
+        return
 
-    # Bloom filter needs to be created/rebuilt
-    bloom_filter = BloomFilter(est_elements=est_num_items, false_positive_rate=false_positive_rate)
-    for ca in ContentArtifact.objects.filter(content__in=version.content):
-        bloom_filter.add(ca.relative_path)
-    repository.pulp_labels["pulp_maven.bloom"] = f"{est_num_items},{false_positive_rate}"
-    repository.pulp_labels["pulp_maven.bloom_filter"] = bloom_filter.export_hex()
-    repository.save(update_fields=["pulp_labels", "pulp_last_updated"], skip_hooks=True)
+    try:
+        filter_matches_config = redis_bloom_filter_matches_config(
+            redis, repository, normalized_config
+        )
+        if filter_matches_config:
+            mark_bloom_filter_not_ready(redis, repository)
+            num_content = ContentArtifact.objects.filter(content__in=version.content).count()
+            if num_content < est_num_items:
+                # Add the new content to the bloom filter
+                paths = ContentArtifact.objects.filter(content__in=version.added()).values_list(
+                    "relative_path", flat=True
+                )
+                add_paths_to_bloom_filter(redis, bloom_filter_key(repository), paths.iterator())
+                redis.set(bloom_filter_config_key(repository), normalized_config)
+                return
+
+            # Grow by 50 percent so large repositories do not rebuild too frequently.
+            est_num_items = grown_bloom_filter_capacity(num_content)
+
+        if not filter_matches_config:
+            num_content = ContentArtifact.objects.filter(content__in=version.content).count()
+            if num_content >= est_num_items:
+                est_num_items = grown_bloom_filter_capacity(num_content)
+
+        mark_bloom_filter_not_ready(redis, repository)
+
+        paths = ContentArtifact.objects.filter(content__in=version.content).values_list(
+            "relative_path", flat=True
+        )
+        replace_bloom_filter(
+            redis,
+            repository,
+            est_num_items,
+            false_positive_rate,
+            paths.iterator(),
+        )
+    except (RedisError, TypeError):
+        log.warning("Unable to update Redis Bloom filter for repository %s", repository.name)
+        return
+
+    new_config = f"{est_num_items},{false_positive_rate}"
+    if repository.pulp_labels[BLOOM_FILTER_CONFIG_LABEL] != new_config:
+        repository.pulp_labels[BLOOM_FILTER_CONFIG_LABEL] = new_config
+        repository.save(update_fields=["pulp_labels", "pulp_last_updated"], skip_hooks=True)
 
 
 def generate_bloom_filter(repository_pk):

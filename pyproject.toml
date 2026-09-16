@@ -25,7 +25,7 @@ requires-python = ">=3.11"
 dependencies = [
   "pulpcore>=3.115.0,<3.130",
   "defusedxml>=0.7,<1.0",
-  "pyprobables>=0.7.0,<0.8",
+  "redis>=4.3.0,<8.2",
 ]
 
 [project.urls]
