@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.30.1 (2026-09-16) {: #0.30.1 }
+
+#### Bugfixes {: #0.30.1-bugfix }
+
+- Load a repository version's ContentArtifacts in a single query when generating index pages during finalize_new_version, instead of one scan per affected directory, to fix a large-repository performance regression.
+  [#484](https://github.com/pulp/pulp_maven/issues/484)
+
+---
+
 ## 0.30.0 (2026-09-15) {: #0.30.0 }
 
 #### Removals {: #0.30.0-removal }
