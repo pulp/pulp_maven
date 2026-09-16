@@ -1,1 +1,0 @@
-Store repository Bloom filters in Redis instead of serializing them into pulp labels, avoiding large database writes whenever repository content changes. Grow full filters by 50 percent to reduce rebuild frequency for large repositories.
