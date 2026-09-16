@@ -931,54 +931,56 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
             return
 
         else:
-            # Incremental path (finalize_new_version with a small diff): one targeted
-            # query per affected directory, then parallel uploads via _save_artifacts_batch.
+            # Incremental path (finalize_new_version): load ALL ContentArtifacts for the
+            # version in ONE query and bucket them into the affected directories in a
+            # single Python pass, instead of issuing one
+            # ``relative_path__startswith=<dir>`` query per affected directory.
             #
-            # rc_dates is NOT pre-fetched for the whole version here — for large repos
-            # that query loads hundreds of thousands of rows even when only one file
-            # changed.  Instead we collect the content_ids we actually encounter and
-            # fetch their dates in a single targeted query.
-            import re as _re
+            # The per-directory approach always did at least one full-version scan: the
+            # root directory ("") is in every affected_paths set and its startswith=""
+            # filter matches every ContentArtifact in the version.  On large repositories
+            # that made finalize_new_version O(#directories) full/subtree scans
+            # (pulp_maven#484).  A single scan is never worse and is dramatically cheaper
+            # when many directories are touched (e.g. a multi-module release).
+            #
+            # rc_dates is still fetched only for the content IDs actually encountered —
+            # not the whole version's relationship table.
+            all_cas = list(
+                ContentArtifact.objects.select_related("artifact")
+                .filter(content__in=new_version.content)
+                .exclude(content__pulp_type="maven.index-page")
+            )
 
-            # Pass 1: query each affected directory, collect raw entries and content IDs.
-            raw: list[tuple[str, dict, set]] = []
+            # Resolve on-demand sizes (RemoteArtifact) in one query.
+            ca_pks_without_artifact = [ca.pk for ca in all_cas if not ca.artifact]
+            remote_sizes: dict = {}
+            if ca_pks_without_artifact:
+                for ra_ca_id, size in RemoteArtifact.objects.filter(
+                    content_artifact__in=ca_pks_without_artifact, size__isnull=False
+                ).values_list("content_artifact_id", "size"):
+                    remote_sizes[ra_ca_id] = size
+
+            # Build per-directory listings in one pass; only keep affected directories.
+            dir_entries: dict = {dp: {} for dp in affected_paths}
             all_content_ids: set = set()
-            for dir_path in affected_paths:
-                cas = (
-                    ContentArtifact.objects.select_related("artifact")
-                    .filter(
-                        content__in=new_version.content,
-                        relative_path__startswith=dir_path,
-                    )
-                    .exclude(content__pulp_type="maven.index-page")
-                )
-                pattern = _re.compile(r"({})([^\/]*)(\/*)".format(_re.escape(dir_path)))
-                entries: dict = {}
-                artifacts_to_find: dict = {}
-                content_ids: set = set()
-                for ca in cas:
-                    m = pattern.match(ca.relative_path)
-                    if not m:
+            for ca in all_cas:
+                parts = ca.relative_path.split("/")
+                ca_size = ca.artifact.size if ca.artifact else remote_sizes.get(ca.pk)
+                for i in range(len(parts)):
+                    dir_path = "" if i == 0 else "/".join(parts[:i]) + "/"
+                    entries = dir_entries.get(dir_path)
+                    if entries is None:
                         continue
-                    name = "{}{}".format(m.group(2), m.group(3))
+                    name = (parts[i] + "/") if i + 1 < len(parts) else parts[i]
                     if not name:
                         continue
-                    ca_size = ca.artifact.size if ca.artifact else None
-                    if ca_size is None:
-                        artifacts_to_find[ca.pk] = name
-                    content_ids.add(ca.content_id)
+                    all_content_ids.add(ca.content_id)
+                    # Last CA for this name wins (matches list_directory() behaviour).
                     entries[name] = {
                         "content_id": ca.content_id,
                         "size": ca_size,
                         "date": ca.pulp_created,  # placeholder; replaced below
                     }
-                if artifacts_to_find:
-                    for ra_ca_id, size in RemoteArtifact.objects.filter(
-                        content_artifact__in=artifacts_to_find.keys(), size__isnull=False
-                    ).values_list("content_artifact_id", "size"):
-                        entries[artifacts_to_find[ra_ca_id]]["size"] = size
-                raw.append((dir_path, entries, content_ids))
-                all_content_ids |= content_ids
 
             # Fetch RepositoryContent dates only for the content IDs we actually saw —
             # one query instead of loading the entire version's relationship table.
@@ -989,9 +991,9 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                 .only("content_id", "pulp_created")
             }
 
-            # Pass 2: apply dates and render HTML for every directory.
+            # Apply dates and render HTML for every affected directory.
             pages_to_save: list = []
-            for dir_path, entries, _ in raw:
+            for dir_path, entries in dir_entries.items():
                 for name, e in entries.items():
                     e["date"] = rc_dates.get(e["content_id"], e["date"])
                 directory_list = set(entries.keys())
