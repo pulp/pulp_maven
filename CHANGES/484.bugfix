@@ -1,1 +1,0 @@
-Load a repository version's ContentArtifacts in a single query when generating index pages during finalize_new_version, instead of one scan per affected directory, to fix a large-repository performance regression.
