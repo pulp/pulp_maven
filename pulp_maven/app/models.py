@@ -6,8 +6,7 @@ from os import path
 
 from django.contrib.postgres.indexes import GinIndex
 from django.db import IntegrityError, models, transaction
-from django_lifecycle import AFTER_CREATE, AFTER_UPDATE, hook
-from probables import BloomFilter
+from django_lifecycle import AFTER_CREATE, AFTER_DELETE, AFTER_UPDATE, hook
 
 from pulpcore.plugin.models import (
     AutoAddObjPermsMixin,
@@ -19,30 +18,18 @@ from pulpcore.plugin.models import (
 from pulpcore.plugin.repo_version_utils import remove_duplicates
 from pulpcore.plugin.util import get_domain_pk
 
+from pulp_maven.app.bloom import (
+    BLOOM_FILTER_CONFIG_LABEL,
+    bloom_filter_might_contain,
+    delete_bloom_filter,
+)
+
 logger = getLogger(__name__)
 
 # Thread-local used to skip metadata generation during pull-through caching.
 # Pull-through tasks run asynchronously from the content app; any extra work in
 # finalize_new_version delays version creation and races with subsequent reads.
 _pull_through_ctx = threading.local()
-
-# Global used to store instantiated Bloom filters to avoid parsing them on every request.
-bloom_filters = {}
-
-
-def get_bloom_filter(repository):
-    """Return a repository's cached Bloom filter, if configured."""
-    if not (bloom_filter_hex := repository.pulp_labels.get("pulp_maven.bloom_filter")):
-        return None
-
-    if date_bloom_filter_tuple := bloom_filters.get(repository.pulp_id):
-        last_updated, bloom_filter = date_bloom_filter_tuple
-        if repository.pulp_last_updated == last_updated:
-            return bloom_filter
-
-    bloom_filter = BloomFilter(hex_string=bloom_filter_hex)
-    bloom_filters[repository.pulp_id] = (repository.pulp_last_updated, bloom_filter)
-    return bloom_filter
 
 
 class MavenContentMixin:
@@ -362,16 +349,12 @@ class MavenDistribution(Distribution, AutoAddObjPermsMixin):
 
         if self.repository_id and self.remote_id is None:
             # Check the bloom filter for the repository if configured
-            if bloom_filter := get_bloom_filter(self.repository):
-                for p in (path, join(path, "index.html")):
-                    if bloom_filter.check(p):
-                        break
-                else:
-                    # Cache the 404 response for the bloom filtered path
-                    class BloomFiltered(HTTPNotFound):
-                        cacheable = True
+            if not bloom_filter_might_contain(self.repository, path, join(path, "index.html")):
+                # Cache the 404 response for the bloom filtered path
+                class BloomFiltered(HTTPNotFound):
+                    cacheable = True
 
-                    raise BloomFiltered(headers={"X-Pulp-Bloom-Filtered": "True"})
+                raise BloomFiltered(headers={"X-Pulp-Bloom-Filtered": "True"})
         # For paths WITHOUT a trailing slash, check whether a pre-generated index page
         # exists.  If so issue a redirect to the trailing-slash form; the next request
         # will be served inline by the branch below.  The normal fallback (line ~851 in
@@ -510,7 +493,15 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
         """Update the Bloom filter for the repository if configured."""
         from pulp_maven.app.tasks import generate_bloom_filter
 
-        generate_bloom_filter(self.pk)
+        if self.pulp_labels.get(BLOOM_FILTER_CONFIG_LABEL):
+            generate_bloom_filter(self.pk)
+        else:
+            delete_bloom_filter(self)
+
+    @hook(AFTER_DELETE)
+    def delete_redis_bloom_filter(self):
+        """Remove the repository's Bloom filter from Redis."""
+        delete_bloom_filter(self)
 
     def _ensure_packages(self, new_version):
         """Manage MavenPackage version membership. Creates missing packages when a POM is available."""
