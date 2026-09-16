@@ -8,6 +8,14 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.32.0 (2026-09-16) {: #0.32.0 }
+
+#### Bugfixes {: #0.32.0-bugfix }
+
+- Store repository Bloom filters in Redis instead of serializing them into pulp labels, avoiding large database writes whenever repository content changes. Grow full filters by 50 percent to reduce rebuild frequency for large repositories.
+
+---
+
 ## 0.30.0 (2026-09-15) {: #0.30.0 }
 
 #### Removals {: #0.30.0-removal }
