@@ -414,7 +414,15 @@ class MavenDistribution(Distribution, AutoAddObjPermsMixin):
         with ca.artifact.file.open("rb") as fh:
             html_bytes = fh.read()
 
-        return Response(body=html_bytes, content_type="text/html", charset="utf-8")
+        return Response(
+            body=html_bytes,
+            content_type="text/html",
+            charset="utf-8",
+            headers={
+                "ETag": f'"{ca.artifact.sha256}"',
+                "Cache-Control": "public, max-age=0, must-revalidate",
+            },
+        )
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
