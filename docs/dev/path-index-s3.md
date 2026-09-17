@@ -155,6 +155,10 @@ index processes. S3 writers are also trusted; digest metadata is used to recogni
 already uploaded objects. Restrict the dedicated prefix to the intended reader
 and writer roles. Readers need GET access; writers need GET/HEAD and PUT access.
 This backend does not delete S3 objects or require object-listing permissions.
+AWS can return 403 for a missing key when the writer lacks `s3:ListBucket`. For a
+locally built object, the adapter then attempts the conditional PUT; it still
+requires readable metadata after a conflict. Reads and predecessor checks continue
+to fail on 403. See [AWS HEAD permissions](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html).
 
 There is no automatic S3 retention policy yet. Do not expire shared base/delta
 objects by age: retained versions and checkpoints can still reference them. A
