@@ -1,3 +1,5 @@
 Added an experimental binary path-index engine with immutable version manifests,
 incremental delta files, compaction, and a standalone development benchmark.
+Added S3 publication and a bounded local download cache shared by content worker
+processes in each pod, removing the experiment's shared-filesystem requirement.
 Repository finalization and content serving are not connected to the experiment yet.
