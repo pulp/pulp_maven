@@ -22,10 +22,9 @@ from pulp_maven.app.bloom import (
     bloom_filter_config_key,
     bloom_filter_key,
     get_redis_connection,
-    grown_bloom_filter_capacity,
-    mark_bloom_filter_not_ready,
+    mark_not_ready_and_retrieve_config,
+    new_bloom_filter_capacity,
     parse_bloom_filter_config,
-    redis_bloom_filter_matches_config,
     replace_bloom_filter,
 )
 from pulp_maven.app.models import (
@@ -608,26 +607,40 @@ def _generate_bloom_filter(repository, version):
     if parsed_config is None:
         return
     est_num_items, false_positive_rate = parsed_config
-    normalized_config = f"{est_num_items},{false_positive_rate}"
+    base_config = f"{est_num_items},{false_positive_rate}"
+    normalized_config = f"{base_config},{version.number}"
 
     redis = get_redis_connection()
     if redis is None:
         log.warning(
-            "Redis is not configured; Bloom filter for repository %s was not updated",
+            "Pulp does not have an active Redis connection, so the Bloom filter for repository "
+            "%s was not updated. Requests will use normal repository lookups. Configure Pulp to "
+            "use Redis, then update the repository to build the filter.",
             repository.name,
         )
         return
 
     try:
-        filter_matches_config = redis_bloom_filter_matches_config(
-            redis, repository, normalized_config
-        )
+        config_and_version = mark_not_ready_and_retrieve_config(redis, repository)
+        filter_matches_config = False
+        base_version = None
+        if config_and_version is not None:
+            config, filter_version = config_and_version
+            if config == base_config and filter_version <= version.number:
+                filter_matches_config = True
+                if version.number - filter_version > 1:
+                    base_version = (
+                        repository.versions.complete().filter(number=filter_version).first()
+                    )
+                    if not base_version:
+                        filter_matches_config = False
+
         if filter_matches_config:
-            mark_bloom_filter_not_ready(redis, repository)
             num_content = ContentArtifact.objects.filter(content__in=version.content).count()
             if num_content < est_num_items:
                 # Add the new content to the bloom filter
-                paths = ContentArtifact.objects.filter(content__in=version.added()).values_list(
+                added_content = version.added(base_version=base_version)
+                paths = ContentArtifact.objects.filter(content__in=added_content).values_list(
                     "relative_path", flat=True
                 )
                 add_paths_to_bloom_filter(redis, bloom_filter_key(repository), paths.iterator())
@@ -635,14 +648,12 @@ def _generate_bloom_filter(repository, version):
                 return
 
             # Grow by 50 percent so large repositories do not rebuild too frequently.
-            est_num_items = grown_bloom_filter_capacity(num_content)
+            est_num_items = new_bloom_filter_capacity(num_content)
 
         if not filter_matches_config:
             num_content = ContentArtifact.objects.filter(content__in=version.content).count()
             if num_content >= est_num_items:
-                est_num_items = grown_bloom_filter_capacity(num_content)
-
-        mark_bloom_filter_not_ready(redis, repository)
+                est_num_items = new_bloom_filter_capacity(num_content)
 
         paths = ContentArtifact.objects.filter(content__in=version.content).values_list(
             "relative_path", flat=True
@@ -650,12 +661,20 @@ def _generate_bloom_filter(repository, version):
         replace_bloom_filter(
             redis,
             repository,
+            version,
             est_num_items,
             false_positive_rate,
             paths.iterator(),
         )
-    except (RedisError, TypeError):
-        log.warning("Unable to update Redis Bloom filter for repository %s", repository.name)
+    except (RedisError, TypeError, UnicodeError) as exc:
+        log.warning(
+            "Could not update the Redis Bloom filter for repository %s: %s. Requests will use "
+            "normal repository lookups until a later update succeeds. Check that Redis is "
+            "reachable and supports RedisBloom or Valkey Bloom commands.",
+            repository.name,
+            exc,
+            exc_info=True,
+        )
         return
 
     new_config = f"{est_num_items},{false_positive_rate}"
