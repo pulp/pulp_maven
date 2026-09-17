@@ -1,0 +1,151 @@
+{
+  "environment": {
+    "python": "3.14.7",
+    "system": "Linux",
+    "index_filesystem": "local Btrfs",
+    "temporary_sort_filesystem": "tmpfs"
+  },
+  "method": "One serial synthetic run per configuration; post-build page cache; no live Pulp, database, EFS, S3 or CDN.",
+  "runs": [
+    {
+      "base_bytes": 64000016,
+      "base_seconds": 3.1204289559973404,
+      "compaction_seconds": 7.117078348179348,
+      "delta_bytes": 5472000,
+      "existing_path_lookup_us": {
+        "max": 356.35,
+        "p50": 18.774,
+        "p95": 22.536,
+        "p99": 47.439
+      },
+      "final_segments": 7,
+      "flat_rewrite_bytes_for_comparison": 64064016016,
+      "manifest_bytes_written": 2248777,
+      "max_segments": 15,
+      "missing_path_lookup_us": {
+        "max": 223.284,
+        "p50": 18.494,
+        "p95": 22.713,
+        "p99": 49.797
+      },
+      "note": "Serial synthetic run; post-build page cache; no Django, S3, auth, or upload capacity claim.",
+      "peak_rss_kib": 138476,
+      "phase": "result",
+      "segment_bytes_written": 113676624,
+      "update_latency_ms": {
+        "max": 34.16805807501078,
+        "p50": 7.8718544682487845,
+        "p95": 10.791506036184728,
+        "p99": 12.157015036791563
+      },
+      "entries": 1000000,
+      "updates": 1000,
+      "paths_per_update": 100
+    },
+    {
+      "base_bytes": 320000016,
+      "base_seconds": 19.51055918703787,
+      "compaction_seconds": 6.864252255763859,
+      "delta_bytes": 5472000,
+      "existing_path_lookup_us": {
+        "max": 364.664,
+        "p50": 19.7775,
+        "p95": 27.102,
+        "p99": 63.154
+      },
+      "final_segments": 7,
+      "flat_rewrite_bytes_for_comparison": 320320016016,
+      "manifest_bytes_written": 2249903,
+      "max_segments": 15,
+      "missing_path_lookup_us": {
+        "max": 230.661,
+        "p50": 19.2855,
+        "p95": 26.827,
+        "p99": 63.12
+      },
+      "note": "Serial synthetic run; post-build page cache; no Django, S3, auth, or upload capacity claim.",
+      "peak_rss_kib": 398648,
+      "phase": "result",
+      "segment_bytes_written": 369676624,
+      "update_latency_ms": {
+        "max": 15.907504013739526,
+        "p50": 7.79953901655972,
+        "p95": 10.349172982387245,
+        "p99": 11.582112987525761
+      },
+      "entries": 5000000,
+      "updates": 1000,
+      "paths_per_update": 100
+    },
+    {
+      "base_bytes": 1280000016,
+      "base_seconds": 80.43403253599536,
+      "compaction_seconds": 6.8055253631901,
+      "delta_bytes": 5472000,
+      "existing_path_lookup_us": {
+        "max": 403.941,
+        "p50": 23.176499999999997,
+        "p95": 35.247,
+        "p99": 64.252
+      },
+      "final_segments": 7,
+      "flat_rewrite_bytes_for_comparison": 1281280016016,
+      "manifest_bytes_written": 2251029,
+      "max_segments": 15,
+      "missing_path_lookup_us": {
+        "max": 299.494,
+        "p50": 22.746,
+        "p95": 34.626,
+        "p99": 62.222
+      },
+      "note": "Serial synthetic run; post-build page cache; no Django, S3, auth, or upload capacity claim.",
+      "peak_rss_kib": 1227856,
+      "phase": "result",
+      "segment_bytes_written": 1329676624,
+      "update_latency_ms": {
+        "max": 14.208814012818038,
+        "p50": 7.718799985013902,
+        "p95": 10.705740074627101,
+        "p99": 11.905894964002073
+      },
+      "entries": 20000000,
+      "updates": 1000,
+      "paths_per_update": 100
+    },
+    {
+      "base_bytes": 1280000016,
+      "base_seconds": 80.0250232659746,
+      "compaction_seconds": 77.84632134612184,
+      "delta_bytes": 54720000,
+      "existing_path_lookup_us": {
+        "max": 349.033,
+        "p50": 26.626,
+        "p95": 39.701,
+        "p99": 68.599
+      },
+      "final_segments": 6,
+      "flat_rewrite_bytes_for_comparison": 12801280160016,
+      "manifest_bytes_written": 26220304,
+      "max_segments": 19,
+      "missing_path_lookup_us": {
+        "max": 279.818,
+        "p50": 26.4625,
+        "p95": 39.779,
+        "p99": 67.581
+      },
+      "note": "Serial synthetic run; post-build page cache; no Django, S3, auth, or upload capacity claim.",
+      "peak_rss_kib": 1528156,
+      "phase": "result",
+      "segment_bytes_written": 2006640496,
+      "update_latency_ms": {
+        "max": 182.75453604292125,
+        "p50": 8.14772950252518,
+        "p95": 11.228924035094678,
+        "p99": 12.3398870928213
+      },
+      "entries": 20000000,
+      "updates": 10000,
+      "paths_per_update": 100
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+Added an experimental binary path-index engine with immutable version manifests,
+incremental delta files, compaction, and a standalone development benchmark.
+Repository finalization and content serving are not connected to the experiment yet.
