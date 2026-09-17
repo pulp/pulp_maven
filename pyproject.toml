@@ -28,6 +28,9 @@ dependencies = [
   "redis>=4.3.0,<8.2",
 ]
 
+[project.optional-dependencies]
+path-index-s3 = ["boto3>=1.36.0"]
+
 [project.urls]
 Homepage = "https://pulpproject.org"
 Documentation = "https://pulpproject.org/pulp_maven/"

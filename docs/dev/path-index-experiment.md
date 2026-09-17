@@ -4,7 +4,9 @@ This is the first implementation slice of [PULP-2423](https://redhat.atlassian.n
 It implements and tests the file engine in `pulp_maven.app.path_index`. It does not
 enable an index in repository finalization, change content responses, register an
 auth endpoint, or change HTML generation. No pulpcore changes are required to use
-the engine. Remaining integration work and deployment gates are listed below.
+the engine. It now includes an S3 backend and a process-coordinated local download
+cache, so shared EFS is not required. See [S3 storage and worker coordination](path-index-s3.md)
+for the deployment contract. Remaining integration work and deployment gates are listed below.
 
 The experiment tests whether small per-version changes can replace a full sorted
 file rewrite on every upload. This matters for a repository receiving 10,000+
@@ -46,10 +48,11 @@ WAL, or artifact uploads. `flat_rewrite_bytes_for_comparison` is an analytical
 baseline, not a separately timed full-rewrite run. Peak RSS includes touched mmap
 pages; it is not the external sort's private-memory footprint.
 
-Run against actual EFS before using the results for deployment sizing. Post-build
-lookups benefit from page cache. Local disk, tmpfs, cold EFS, and several content
-workers sharing a node are different workloads. Do not drop caches on a shared
-host to manufacture a cold benchmark.
+Measure S3 uploads and cold pod downloads before using the results for deployment
+sizing. Post-build lookups benefit from page cache. Local disk, tmpfs, a cold pod
+cache, and several content workers sharing a pod are different workloads. Do not
+drop caches on a shared host to manufacture a cold benchmark. This command measures
+the local file engine, not S3 transfer latency.
 
 ### Local measurements
 
@@ -71,11 +74,11 @@ compaction and manifests account for the rest. Compaction took 77.85 seconds in
 that serial run, separately from foreground update times. Rewriting the 20M-record
 base for every update would write approximately 12.8 TB, excluding reads and
 filesystem overhead. This comparison demonstrates reduced application write
-volume; it does not predict EFS billing or end-to-end upload throughput.
+volume; it does not predict S3 billing or end-to-end upload throughput.
 
 The measurements also show that the issue's proposed 1-5 microsecond lookup target
 is not established by this Python prototype. Review the additional searches against
-the write savings, and measure worst-bound views and real EFS before choosing
+the write savings, and measure worst-bound views and the S3-backed pod cache before choosing
 production limits. Full observations are in the
 [JSON report](path-index-benchmark-results.json).
 
@@ -123,9 +126,11 @@ or None. The future integration must distinguish these errors from an authoritat
 miss and apply the repository's on-demand/fallback policy.
 
 Retain a view for repeated lookups and close it after concurrent users finish.
-The engine does not supply an asyncio adapter, LRU, reference-counted mapping
-cache, or automatic eviction. mmap faults and file operations may block. Do not
-run this synchronous API directly on the content app's event-loop thread.
+The local engine does not supply an asyncio adapter or a worker mapping cache.
+The S3 adapter adds a disk cache with process locks and eviction of unused files;
+it still requires callers to retain and close views. mmap faults, downloads, and
+file operations may block. Do not run this synchronous API directly on the
+content app's event-loop thread.
 
 ## On-disk contract
 
@@ -169,7 +174,8 @@ Publication fsyncs output before rename and then fsyncs its directory. A persist
 flock serializes publication; it does not serialize the entire build. Existing
 immutable files must have identical bytes for an idempotent retry. Conflicting
 version publications raise `PublicationConflict`. Readers see no partial manifest.
-Cross-pod locking and rename behavior must still be verified on EFS.
+With the S3 backend, these POSIX operations are local to one pod. Conditional S3
+object creation coordinates publication across pods; manifests are uploaded last.
 
 ## Compaction and retention
 
@@ -224,6 +230,6 @@ so that test remains outstanding. Binary-engine timings do not substitute for it
 
 Next implementation work is version-scoped extraction and initial-build tasks,
 incremental directory summaries, mapping lifecycle, then guarded auth/origin
-integration. The deployed guard, Akamai contract, EFS behavior, and 200-upload burst
+integration. The deployed guard, Akamai contract, cold S3/cache behavior, and 200-upload burst
 capacity are still deployment gates. This slice adds no schema migrations or
 production settings.
