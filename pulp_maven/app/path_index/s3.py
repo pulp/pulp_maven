@@ -134,11 +134,16 @@ class S3IndexStore:
     def _key(self, relative):
         return f"{self.prefix}/{self.local.domain_id}/{self.local.repository_id}/{relative}"
 
-    def _head(self, relative):
+    def _head(self, relative, *, for_put=False):
         try:
             return self.client.head_object(Bucket=self.bucket, Key=self._key(relative))
         except Exception as exc:
             if _status(exc) == 404:
+                return None
+            if for_put and _status(exc) == 403:
+                # S3 hides missing keys behind 403 without ListBucket permission.
+                # Only a conditional PUT can establish creation in that case;
+                # reads and predecessor checks must still fail closed.
                 return None
             raise IndexUnavailable("Cannot inspect an S3 index object") from exc
 
@@ -151,7 +156,7 @@ class S3IndexStore:
         if size > MAX_OBJECT_BYTES:
             raise IndexUnavailable("Index segment exceeds the single-PUT size limit")
         # A HEAD saves duplicate transfers; the conditional PUT closes the race.
-        if head := self._head(relative):
+        if head := self._head(relative, for_put=True):
             self._check_object(head, size, digest)
             return
         for attempt in range(3):
@@ -225,14 +230,15 @@ class S3IndexStore:
         # Commit the manifest only after *all* referenced objects are available.
         for reference in manifest.segments:
             relative = f"segments/{reference.digest}.bin"
-            if head := self._head(relative):
-                self._check_object(head, reference.byte_size, reference.digest)
+            path = builder.root / relative
+            if path.exists():
+                with path.open("rb") as stream:
+                    self._put(relative, stream, reference.byte_size, reference.digest)
             else:
-                try:
-                    with (builder.root / relative).open("rb") as stream:
-                        self._put(relative, stream, reference.byte_size, reference.digest)
-                except FileNotFoundError as exc:
-                    raise IndexUnavailable("A predecessor segment is missing from S3") from exc
+                head = self._head(relative)
+                if head is None:
+                    raise IndexUnavailable("A predecessor segment is missing from S3")
+                self._check_object(head, reference.byte_size, reference.digest)
         raw = manifest.encode()
         digest = hashlib.sha256(raw).hexdigest()
         relative = (

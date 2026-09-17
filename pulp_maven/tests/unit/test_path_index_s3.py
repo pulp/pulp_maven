@@ -318,6 +318,40 @@ def test_conditional_conflict_and_retry(store, remote):
     assert calls == 3  # Conflict, segment retry, manifest.
 
 
+def test_writer_does_not_need_list_bucket_permission(store, remote):
+    original = remote.head_object
+
+    def head_without_listing(**kwargs):
+        try:
+            return original(**kwargs)
+        except S3Error as exc:
+            if _status_for_test(exc) == 404:
+                raise S3Error(403)
+            raise
+
+    with patch.object(remote, "head_object", side_effect=head_without_listing):
+        first = store.create(identity(10), [entry("a")])
+        second = store.update(identity(11), first, [entry("b")])
+        with store.open(second) as view:
+            assert view.lookup("a") == entry("a")
+            assert view.lookup("b") == entry("b")
+
+
+def _status_for_test(exc):
+    return exc.response["ResponseMetadata"]["HTTPStatusCode"]
+
+
+def test_forbidden_existing_object_is_not_overwritten(store, remote):
+    first = store.create(identity(10), [entry("a")])
+    puts = remote.events("PUT")
+    with patch.object(remote, "head_object", side_effect=S3Error(403)):
+        with pytest.raises(IndexUnavailable):
+            store.create(identity(10), [entry("a")])
+        with pytest.raises(IndexUnavailable):
+            store.update(identity(11), first, [entry("b")])
+    assert remote.events("PUT") == puts
+
+
 def _download_process(remote_root, cache_root, raw, start, output):
     client = FileS3(remote_root)
     client.download_delay = 0.2
