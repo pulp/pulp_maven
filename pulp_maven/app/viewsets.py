@@ -6,7 +6,14 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serial
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.serializers import IntegerField, URLField, ValidationError
+from rest_framework.serializers import (
+    BooleanField,
+    CharField,
+    IntegerField,
+    URLField,
+    UUIDField,
+    ValidationError,
+)
 
 from pulpcore.plugin.actions import ModifyRepositoryActionMixin
 from pulpcore.plugin.models import RepositoryVersion
@@ -442,7 +449,7 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
                 ],
             },
             {
-                "action": ["retrieve", "packages", "metrics"],
+                "action": ["retrieve", "packages", "metrics", "path_index_status"],
                 "principal": "authenticated",
                 "effect": "allow",
                 "condition": "has_model_or_domain_or_obj_perms:maven.view_mavenrepository",
@@ -476,7 +483,12 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
                 ],
             },
             {
-                "action": ["repair_metadata", "repair_index_pages"],
+                "action": [
+                    "repair_metadata",
+                    "repair_index_pages",
+                    "build_path_index",
+                    "compact_path_index",
+                ],
                 "principal": "authenticated",
                 "effect": "allow",
                 "condition": [
@@ -735,6 +747,97 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
         repository = self.get_object()
         result = dispatch(
             repair_index_pages,
+            exclusive_resources=[repository],
+            kwargs={"repository_pk": str(repository.pk)},
+        )
+        return OperationPostponedResponse(result, request)
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="MavenPathIndexStatus",
+                fields={
+                    "enabled": BooleanField(),
+                    "ready": BooleanField(),
+                    "latest_version": UUIDField(allow_null=True),
+                    "manifest_digest": CharField(allow_null=True),
+                    "error": CharField(),
+                },
+            )
+        }
+    )
+    @action(detail=True, methods=["get"])
+    def path_index_status(self, request, pk, **kwargs):
+        """Inspect durable publication state without scanning repository content."""
+        from pulp_maven.app.path_index.config import enabled
+        from pulp_maven.app.path_index.format import InvalidIndex
+        from pulp_maven.app.path_index.state import descriptor
+
+        repository = self.get_object()
+        latest = (
+            RepositoryVersion.objects.filter(repository=repository, complete=True)
+            .only("pk", "info")
+            .order_by("-number")
+            .first()
+        )
+        value, error = None, ""
+        if latest:
+            try:
+                value = descriptor(latest, repository)
+            except InvalidIndex as exc:
+                error = str(exc)
+        return Response(
+            {
+                "enabled": enabled(repository),
+                "ready": value is not None,
+                "latest_version": latest.pk if latest else None,
+                "manifest_digest": value["digest"] if value else None,
+                "error": error,
+            }
+        )
+
+    @extend_schema(
+        request=None,
+        responses={202: AsyncOperationResponseSerializer},
+        parameters=[
+            OpenApiParameter(
+                name="repository_version",
+                type=OpenApiTypes.URI,
+                location=OpenApiParameter.QUERY,
+                description="Optional pinned version HREF or PRN; otherwise resolve latest in task.",
+            )
+        ],
+    )
+    @action(detail=True, methods=["post"])
+    def build_path_index(self, request, pk, **kwargs):
+        """Build a consistent initial index while repository mutations queue."""
+        from pulp_maven.app.tasks.path_index import build_path_index
+
+        repository = self.get_object()
+        version = (
+            self._requested_repository_version(repository)
+            if request.query_params.get("repository_version")
+            else None
+        )
+        result = dispatch(
+            build_path_index,
+            exclusive_resources=[repository],
+            kwargs={
+                "repository_pk": str(repository.pk),
+                "version_pk": str(version.pk) if version else None,
+            },
+        )
+        return OperationPostponedResponse(result, request)
+
+    @extend_schema(request=None, responses={202: AsyncOperationResponseSerializer})
+    @action(detail=True, methods=["post"])
+    def compact_path_index(self, request, pk, **kwargs):
+        """Rebase the latest completed index while repository mutations queue."""
+        from pulp_maven.app.tasks.path_index import compact_path_index
+
+        repository = self.get_object()
+        result = dispatch(
+            compact_path_index,
             exclusive_resources=[repository],
             kwargs={"repository_pk": str(repository.pk)},
         )

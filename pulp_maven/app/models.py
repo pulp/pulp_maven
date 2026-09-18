@@ -336,6 +336,12 @@ class MavenDistribution(Distribution, AutoAddObjPermsMixin):
 
         from pulpcore.plugin.models import ContentArtifact
 
+        from pulp_maven.app.path_index.content import indexed_response
+
+        response = indexed_response(self, path)
+        if response is not None:
+            return response
+
         # Resolve the live repository version for this distribution.
         if self.repository_version_id:
             version = self.repository_version
@@ -486,6 +492,10 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
             self._generate_metadata(new_version)
             self._generate_index_pages(new_version)
             self._generate_bloom_filter(new_version)
+
+        from pulp_maven.app.path_index.publish import finalize
+
+        finalize(self, new_version)
 
     @hook(AFTER_CREATE)
     @hook(AFTER_UPDATE, when="pulp_labels", has_changed=True)

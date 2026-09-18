@@ -206,7 +206,15 @@ class IndexStore:
     """
 
     def __init__(
-        self, directory, domain_id, repository_id, *, max_segments=16, chunk_size=65536, fan_in=32
+        self,
+        directory,
+        domain_id,
+        repository_id,
+        *,
+        max_segments=16,
+        chunk_size=65536,
+        fan_in=32,
+        scratch_directory=None,
     ):
         _uuid(domain_id)
         _uuid(repository_id)
@@ -220,6 +228,7 @@ class IndexStore:
         self.max_segments = max_segments
         self.chunk_size = chunk_size
         self.fan_in = fan_in
+        self.scratch_directory = scratch_directory
         self.segment_bytes_written = 0
         self.manifest_bytes_written = 0
         for name in ("segments", "versions", "checkpoints", "staging"):
@@ -292,7 +301,12 @@ class IndexStore:
         return manifest
 
     def _sort(self, entries):
-        return sorted_entries(entries, chunk_size=self.chunk_size, fan_in=self.fan_in)
+        return sorted_entries(
+            entries,
+            directory=self.scratch_directory,
+            chunk_size=self.chunk_size,
+            fan_in=self.fan_in,
+        )
 
     def create(self, version_id, entries):
         """Build the initial base from a bounded, one-pass stream of entries."""
@@ -332,7 +346,9 @@ class IndexStore:
                 yield key, selected
 
         reference = self._write_segment(
-            lambda stream: write_delta(stream, changed_operations()),
+            lambda stream: write_delta(
+                stream, changed_operations(), directory=self.scratch_directory
+            ),
             kind="delta",
             start=previous.version_id,
             end=version_id,
@@ -401,7 +417,11 @@ class IndexStore:
                                 for item in (older, newer)
                             ]
                             merged = self._write_segment(
-                                lambda stream: write_delta(stream, merge_operations(sources)),
+                                lambda stream: write_delta(
+                                    stream,
+                                    merge_operations(sources),
+                                    directory=self.scratch_directory,
+                                ),
                                 kind="delta",
                                 start=older.start,
                                 end=newer.end,

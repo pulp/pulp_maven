@@ -222,9 +222,8 @@ class S3IndexStore:
     @contextmanager
     def _builder(self):
         with TemporaryDirectory(prefix="pulp-path-index-", dir=self.work_directory) as directory:
-            yield IndexStore(
-                directory, self.local.domain_id, self.local.repository_id, **self.store_options
-            )
+            options = {"scratch_directory": directory, **self.store_options}
+            yield IndexStore(directory, self.local.domain_id, self.local.repository_id, **options)
 
     def _publish(self, manifest, builder, *, checkpoint=False):
         # Commit the manifest only after *all* referenced objects are available.
