@@ -1,12 +1,15 @@
 # Binary path-index experiment
 
-This is the first implementation slice of [PULP-2423](https://redhat.atlassian.net/browse/PULP-2423).
-It implements and tests the file engine in `pulp_maven.app.path_index`. It does not
-enable an index in repository finalization, change content responses, register an
-auth endpoint, or change HTML generation. No pulpcore changes are required to use
-the engine. It now includes an S3 backend and a process-coordinated local download
-cache, so shared EFS is not required. See [S3 storage and worker coordination](path-index-s3.md)
-for the deployment contract. Remaining integration work and deployment gates are listed below.
+The [glossary](path-index-glossary.md) explains the index, storage, and benchmark terms.
+
+This document covers the file engine for [PULP-2423](https://redhat.atlassian.net/browse/PULP-2423)
+and its standalone benchmark. No pulpcore changes are required. The S3 backend and
+shared pod cache remove the EFS requirement; see
+[S3 storage and worker coordination](path-index-s3.md). The later
+[Maven integration](path-index-integration.md) connects repository finalization,
+S3 publication and content serving. That guide describes the implemented behavior
+and remaining deployment gates; integration proposals below record the engine's
+original design context.
 
 The experiment tests whether small per-version changes can replace a full sorted
 file rewrite on every upload. This matters for a repository receiving 10,000+
