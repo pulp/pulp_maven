@@ -1,10 +1,10 @@
 """Maintain immediate children and render only changed directory pages."""
 
 import hashlib
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from itertools import islice
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Exists, OuterRef, Q, Subquery
 from django.db.models.functions import Length
 
@@ -111,6 +111,69 @@ def generate(repository, version, *, rebuild=False):
                 directory_cache.popitem(last=False)
             return obj
 
+        def prepare_directories(paths):
+            paths_by_hash = {}
+            for path in paths:
+                parent, _, _ = path.rpartition("/")
+                current = parent + "/" if parent else ""
+                while True:
+                    digest = hashlib.sha256(current.encode("utf-8")).hexdigest()
+                    if digest in paths_by_hash and paths_by_hash[digest] != current:
+                        raise ValueError("Directory hash collision")
+                    paths_by_hash[digest] = current
+                    if not current:
+                        break
+                    parent, _, _ = current.rstrip("/").rpartition("/")
+                    current = parent + "/" if parent else ""
+
+            existing = {
+                obj.path_hash: obj
+                for obj in directories.filter(path_hash__in=paths_by_hash).iterator(chunk_size=1000)
+            }
+            missing_hashes = paths_by_hash.keys() - existing.keys()
+            if missing_hashes:
+                MavenDirectory.objects.bulk_create(
+                    [
+                        MavenDirectory(
+                            repository=repository,
+                            path=paths_by_hash[digest],
+                            path_hash=digest,
+                        )
+                        for digest in missing_hashes
+                    ],
+                    ignore_conflicts=True,
+                )
+                existing.update(
+                    {
+                        obj.path_hash: obj
+                        for obj in directories.filter(path_hash__in=missing_hashes).iterator(
+                            chunk_size=1000
+                        )
+                    }
+                )
+            prepared = existing
+            for digest, obj in prepared.items():
+                if obj.path != paths_by_hash[digest]:
+                    raise ValueError("Directory hash collision")
+                directory_cache[digest] = obj
+
+            links = []
+            for digest in missing_hashes:
+                path = paths_by_hash[digest]
+                if not path:
+                    continue
+                parent_path, _, name = path.rstrip("/").rpartition("/")
+                parent_path = parent_path + "/" if parent_path else ""
+                parent_digest = hashlib.sha256(parent_path.encode("utf-8")).hexdigest()
+                parent = prepared[parent_digest]
+                links.append(MavenDirectoryChild(directory=parent, name=name + "/"))
+                mark_dirty(parent)
+            MavenDirectoryChild.objects.bulk_create(links, ignore_conflicts=True)
+
+        def trim_directory_cache():
+            while len(directory_cache) > 4096:
+                directory_cache.popitem(last=False)
+
         def replace(rows):
             seen = set()
             pending = []
@@ -142,7 +205,9 @@ def generate(repository, version, *, rebuild=False):
             # Bootstrap/recovery only. Incremental versions never enumerate the repository.
             MavenDirectory.objects.filter(repository=repository).delete()
             for batch in batches(files(version, pages=False).iterator(chunk_size=1000)):
+                prepare_directories(row["relative_path"] for row in batch)
                 replace(batch)
+                trim_directory_cache()
             old_pages = MavenIndexPage.objects.filter(
                 pk__in=memberships(version).values("content_id")
             ).values("pk", "path", "sha256")
@@ -156,13 +221,20 @@ def generate(repository, version, *, rebuild=False):
                     obj.save(update_fields=["page_id", "page_sha256"])
                     mark_dirty(obj)
         else:
+            removed_content = RepositoryContent.objects.filter(
+                repository_id=version.repository_id, version_removed_id=version.pk
+            ).values("content_id")
+            MavenDirectoryChild.objects.filter(
+                directory__repository=repository, content_id__in=removed_content
+            ).delete()
             for paths in batches(changed_paths(version, pages=False).iterator(chunk_size=1000)):
+                prepare_directories(paths)
                 for path in paths:
-                    parent, _, name = path.rpartition("/")
+                    parent, _, _ = path.rpartition("/")
                     obj = directory(parent + "/" if parent else "")
-                    obj.children.filter(name=name).delete()
                     mark_dirty(obj)
                 replace(files(version, paths, pages=False))
+                trim_directory_cache()
 
         # Remove empty directories bottom-up. No descendant dates/sizes propagate.
         while True:
@@ -188,12 +260,17 @@ def generate(repository, version, *, rebuild=False):
         for group in batches(
             directories.filter(dirty=True).order_by("pk").iterator(chunk_size=64), 64
         ):
+            children_by_directory = defaultdict(list)
+            child_rows = MavenDirectoryChild.objects.filter(
+                directory_id__in=[obj.pk for obj in group]
+            ).order_by("directory_id", "name")
+            for child in child_rows.values("directory_id", "name", "size", "last_modified"):
+                children_by_directory[child["directory_id"]].append(child)
             pages = []
             changed = {}
+            updated = []
             for obj in group:
-                children = list(
-                    obj.children.order_by("name").values("name", "size", "last_modified")
-                )
+                children = children_by_directory[obj.pk]
                 raw = Handler.render_html(
                     [c["name"] for c in children],
                     path=obj.path,
@@ -201,26 +278,41 @@ def generate(repository, version, *, rebuild=False):
                     dates={c["name"]: c["last_modified"] for c in children if c["last_modified"]},
                 ).encode("utf-8")
                 if hashlib.sha256(raw).hexdigest() == obj.page_sha256:
-                    directories.filter(pk=obj.pk).update(dirty=False)
+                    obj.dirty = False
+                    updated.append(obj)
                     continue
                 pages.append((obj.path, raw))
                 changed[obj.path] = obj
             artifacts = _save_artifacts_batch(pages, repository.pulp_domain)
             added = []
+            content_artifacts = []
             for path, artifact in artifacts.items():
                 obj = changed[path]
                 if obj.page_id:
                     removed_pages.add(obj.page_id)
-                page, _ = MavenIndexPage.objects.get_or_create(
+                page = MavenIndexPage(
                     path=path, sha256=artifact.sha256, _pulp_domain=repository.pulp_domain
                 )
-                ContentArtifact.objects.get_or_create(
-                    content=page, relative_path=path + "index.html", defaults={"artifact": artifact}
+                try:
+                    with transaction.atomic():
+                        page.save()
+                except IntegrityError:
+                    page = MavenIndexPage.objects.get(
+                        path=path, sha256=artifact.sha256, _pulp_domain=repository.pulp_domain
+                    )
+                content_artifacts.append(
+                    ContentArtifact(
+                        content=page,
+                        artifact=artifact,
+                        relative_path=path + "index.html",
+                    )
                 )
                 obj.page_id, obj.page_sha256 = page.pk, artifact.sha256
                 obj.dirty = False
-                obj.save(update_fields=["page_id", "page_sha256", "dirty"])
+                updated.append(obj)
                 added.append(page.pk)
+            ContentArtifact.objects.bulk_create(content_artifacts, ignore_conflicts=True)
+            MavenDirectory.objects.bulk_update(updated, ["page_id", "page_sha256", "dirty"])
             if removed_pages:
                 version.remove_content(MavenIndexPage.objects.filter(pk__in=removed_pages))
                 removed_pages.clear()
