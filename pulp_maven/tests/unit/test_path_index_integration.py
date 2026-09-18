@@ -415,15 +415,21 @@ def test_four_processes_share_segment_downloads(repository, storage):
     assert len(gets) == 2
 
 
-def test_fresh_namespace_rebuilds_incompatible_profile(repository, storage, settings):
-    from pulp_maven.app.path_index.config import profile
+def test_fresh_namespace_rebuilds_incompatible_profile(repository, storage, monkeypatch):
+    from pulp_maven.app.path_index.config import S3_BACKENDS, profile
     from pulp_maven.app.path_index.state import INFO_KEY
     from pulp_maven.app.tasks.path_index import build_path_index
 
     version = change(repository, [content("com/example/lib/1.0/a.jar")])
     old = version.info[INFO_KEY]["profile"]
-    repository.pulp_domain.storage_settings = {"location": "new-experiment"}
-    repository.pulp_domain.save(update_fields=["storage_settings"], skip_hooks=True)
+    domain = repository.pulp_domain
+    if domain.storage_class in S3_BACKENDS:
+        # The default S3 domain reads Django storage, not its storage_settings field.
+        monkeypatch.setattr(domain.get_storage(), "location", "new-experiment")
+    else:
+        domain.storage_settings = {"location": "new-experiment"}
+        domain.save(update_fields=["storage_settings"], skip_hooks=True)
+    assert profile(domain) != old
     storage.prefix = "new-experiment"
     build_path_index(repository.pk)
     version.refresh_from_db()
