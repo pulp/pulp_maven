@@ -13,7 +13,7 @@ def selected_version(repository_pk, version_pk=None):
     repository = MavenRepository.objects.select_related("pulp_domain").get(pk=repository_pk)
     set_domain(repository.pulp_domain)
     if not enabled(repository):
-        raise ValueError("Enable path_index on the repository and configure the experiment first")
+        raise ValueError('Set pulp_labels["path_index"] = "true" on the repository first')
     query = RepositoryVersion.objects.filter(repository=repository, complete=True).only(
         "pk", "info"
     )

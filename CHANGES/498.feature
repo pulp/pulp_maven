@@ -1,1 +1,2 @@
 Add opt-in Maven path indexes published synchronously to S3 before repository version completion. Use committed manifest descriptors and a shared pod cache for eligible content requests; fail modify if publication fails. Serve HTML listings inline through the shared indexed artifact response with HTTP cache validators and no separate local page cache.
+Use the repository label as the only feature switch, inherit S3 configuration from the domain, and fix background view preparation at two threads per content process.

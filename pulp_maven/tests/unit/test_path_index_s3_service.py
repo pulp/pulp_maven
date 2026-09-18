@@ -8,14 +8,81 @@ import hashlib
 import io
 import os
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from django.core.files.storage import default_storage, storages
+
+from pulpcore.plugin.models import Domain
 
 from pulp_maven.app.path_index.format import Entry, path_hash
 from pulp_maven.app.path_index.s3 import S3IndexStore
 from pulp_maven.app.path_index.store import PublicationConflict
+
+
+@pytest.mark.parametrize("domain_kind", ["tenant", "default", "legacy-default"])
+def test_domain_storage_configuration_round_trip(
+    service, tmp_path, settings, monkeypatch, domain_kind
+):
+    pytest.importorskip("storages.backends.s3")
+    from pulp_maven.app.path_index.config import profile, store
+
+    reference = service("reference")
+    backend = "storages.backends.s3.S3Storage"
+    options = {
+        "bucket_name": reference.bucket,
+        "endpoint_url": reference.client.meta.endpoint_url,
+        "location": "pulp-artifacts",
+        "region_name": "us-east-1",
+        "access_key": os.environ["AWS_ACCESS_KEY_ID"],
+        "secret_key": os.environ["AWS_SECRET_ACCESS_KEY"],
+        "object_parameters": {"Metadata": {"owner": "domain"}},
+    }
+    # Only the domain has working credentials; an independent boto3 client would fail.
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "wrong-global-key")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "wrong-global-secret")
+    if domain_kind == "tenant":
+        domain = Domain(pk=uuid4(), name="test-s3", storage_class=backend, storage_settings=options)
+    else:
+        domain = Domain(pk=uuid4(), name="default", storage_class=backend, storage_settings={})
+        if domain_kind == "default":
+            settings.STORAGES = {"default": {"BACKEND": backend, "OPTIONS": options}}
+        else:
+            settings.STORAGES = {"default": {"BACKEND": backend}}
+            settings.AWS_STORAGE_BUCKET_NAME = options["bucket_name"]
+            settings.AWS_S3_ENDPOINT_URL = options["endpoint_url"]
+            settings.AWS_LOCATION = options["location"]
+            settings.AWS_S3_REGION_NAME = options["region_name"]
+            settings.AWS_ACCESS_KEY_ID = options["access_key"]
+            settings.AWS_SECRET_ACCESS_KEY = options["secret_key"]
+            settings.AWS_S3_OBJECT_PARAMETERS = options["object_parameters"]
+        # Pulp's Dynaconf setup retains an earlier settings reference in Django's
+        # storage handler. Instantiate from the override explicitly; Domain still
+        # resolves the real Django default_storage object used in production.
+        monkeypatch.setattr(
+            default_storage, "_wrapped", storages.create_storage(settings.STORAGES["default"])
+        )
+    repo = SimpleNamespace(pk=uuid4(), pulp_domain=domain, pulp_domain_id=domain.pk)
+    settings.MAVEN_PATH_INDEX_CACHE_DIR = str(tmp_path / "writer")
+    writer = store(repo)
+    settings.MAVEN_PATH_INDEX_CACHE_DIR = str(tmp_path / "reader")
+    reader = store(repo)
+    original = Entry.for_path("a.jar", "ab" * 32, 100, 1700000000)
+    manifest = writer.create(str(uuid4()), [original])
+    try:
+        assert reader.read_version(manifest.version_id) == manifest
+        with reader.open(manifest) as view:
+            assert view.lookup("a.jar") == original
+        key = writer._key(f"versions/{manifest.version_id}.json")
+        assert key.startswith(f"pulp-artifacts/maven-path-index/{profile(domain)}/")
+        assert (
+            reference.client.head_object(Bucket=writer.bucket, Key=key)["Metadata"]["owner"]
+            == "domain"
+        )
+    finally:
+        writer.client.close()
 
 
 @pytest.fixture

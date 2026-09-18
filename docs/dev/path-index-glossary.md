@@ -8,7 +8,7 @@ The integration guide records current behavior and settings.
 
 Use these sections to find a term:
 
-- [Shadow, serve, and off](#shadow-serve-and-off)
+- [Enabling and disabling the index](#enabling-and-disabling-the-index)
 - [Pulp and Maven](#pulp-and-maven)
 - [Version changes and publication](#version-changes-and-publication)
 - [Index files and lookups](#index-files-and-lookups)
@@ -18,18 +18,17 @@ Use these sections to find a term:
 - [HTTP and the CDN](#http-and-the-cdn)
 - [Measurements and testing](#measurements-and-testing)
 
-## Shadow, serve, and off
+## Enabling and disabling the index
 
-Both `shadow` and `serve` require the repository label `path_index=true`.
+The repository label `path_index=true` is the only feature switch. Its domain must
+use S3 storage. The earlier global `off`, `shadow`, and `serve` modes were removed.
 
-| Mode | Meaning |
+| State | Meaning |
 | --- | --- |
-| `off` | The integration is disabled. Pulp uses its existing content resolver. Stored index data is not deleted. |
-| `shadow` | Publish indexes synchronously and prepare requested views. Content responses use the existing resolver. S3 publication failure fails modify, and no automatic DB/index comparison is performed. |
-| `serve` | Perform the same writer work as shadow mode, and use complete prepared index views for content requests. Unavailable views use the existing resolver. Authentication and content guards still run. |
+| Label absent or not `"true"` | The integration is disabled. Pulp uses its existing content resolver. Stored index data is not deleted. |
+| Label is `"true"` | Publish indexes synchronously and use complete prepared views for content requests. Unavailable views use the existing resolver. S3 publication failure fails modify. Authentication and content guards still run. |
 
-Shadow mode affects repository writes and their failure policy. It does not enable
-the independent incremental HTML generator.
+The label does not enable the independent incremental HTML generator.
 
 ## Pulp and Maven
 
@@ -57,7 +56,7 @@ the independent incremental HTML generator.
 | On-demand content | Content whose metadata/path is known but whose file may be fetched from a remote when requested. An incomplete index cannot authoritatively reject these requests. |
 | Pinned repository version | A distribution explicitly selects one repository version instead of following the latest. This is different from pinning a local cache file against eviction. |
 | PK / UUID / PRN | A PK is a database primary key. A UUID is the identifier format used for repository versions and many Pulp resources. A PRN is a Pulp Resource Name, another way to identify an API resource. |
-| `pulp_labels` / opt-in | Repository key/value labels. `path_index=true` selects a repository for the experiment when the global mode is shadow or serve. |
+| `pulp_labels` / opt-in | Repository key/value labels. `path_index=true` enables index publication and serving for that repository. |
 | Pulp / pulpcore / pulp-maven | Pulp manages and distributes content. Pulpcore provides shared infrastructure; pulp-maven adds Maven content types and behavior. The experiment lives in pulp-maven. |
 | pulp-content / content app | The Pulp service that handles client content requests, including guard checks and file delivery. Its worker processes use the local index cache. |
 | Pull-through caching | Fetching requested content from an upstream remote and adding it to Pulp. Distributions with a remote use the existing request flow. |
@@ -183,7 +182,7 @@ Summary and dirty-directory terms describe the independent HTML optimization.
 | Multipart upload | Uploading a large object in several separately managed parts. The experimental index backend uses single-object PUTs; multipart support is future work. |
 | Namespace | A boundary separating objects or files for different endpoints, buckets, prefixes, domains, or repositories. A fresh namespace allows a new experiment without overwriting immutable objects. |
 | POSIX / `flock` | POSIX refers to Unix-style operating-system interfaces. `flock` coordinates cooperating processes through an open file; this experiment uses it for local readers and writers. |
-| Profile / storage-profile fingerprint | A hash of domain, artifact storage, index namespace, and extraction revision. It prevents incompatible manifests and views from being reused. |
+| Profile / storage-profile fingerprint | A hash of domain, storage backend, bucket, location, endpoint, region, and extraction revision. It selects the index namespace and prevents incompatible manifests and views from being reused. Credentials are excluded so rotation does not require rebuilding. |
 | Scratch / staging / temporary output | Scratch is working space for sorting and building. Staging holds output not yet published. These files require disk space in addition to retained outputs. |
 | S3 GET / HEAD / PUT / LIST / DELETE | Read an object, inspect its metadata, write an object, list keys, or remove an object. The index backend uses GET/HEAD/PUT; it does not require object listing or deletion. |
 

@@ -92,6 +92,8 @@ class S3IndexStore:
     All workers using ``cache_directory`` must use the same cache budget. The
     budget spans every namespace in that directory, but excludes build scratch.
     Conditional PutObject support is required; unconditional writes are never used.
+    ``object_parameters``, when supplied, returns storage options for an S3 key.
+    Index payload, integrity metadata, and conditional creation remain engine-owned.
     """
 
     def __init__(
@@ -106,6 +108,7 @@ class S3IndexStore:
         max_cache_bytes=4 * 1024**3,
         lock_timeout=30,
         work_directory=None,
+        object_parameters=None,
         **store_options,
     ):
         if type(max_cache_bytes) is not int or max_cache_bytes < 16 or lock_timeout < 0:
@@ -119,6 +122,7 @@ class S3IndexStore:
         self.max_cache_bytes = max_cache_bytes
         self.lock_timeout = lock_timeout
         self.store_options = store_options
+        self.object_parameters = object_parameters
         # Separate endpoints/buckets/prefixes even when Pulp identities coincide.
         source = f"{client.meta.endpoint_url}\n{bucket}\n{self.prefix}"
         namespace = hashlib.sha256(source.encode("utf-8")).hexdigest()
@@ -134,9 +138,40 @@ class S3IndexStore:
     def _key(self, relative):
         return f"{self.prefix}/{self.local.domain_id}/{self.local.repository_id}/{relative}"
 
+    def _parameters(self, relative, *, read=False):
+        parameters = (
+            dict(self.object_parameters(self._key(relative))) if self.object_parameters else {}
+        )
+        if read:
+            return {
+                key: value
+                for key, value in parameters.items()
+                if key
+                in {
+                    "SSECustomerAlgorithm",
+                    "SSECustomerKey",
+                    "SSECustomerKeyMD5",
+                    "RequestPayer",
+                    "ExpectedBucketOwner",
+                }
+            }
+        # Index bytes are not compressed by django-storages. Never advertise a
+        # domain-wide content encoding or allow other checksum/condition options
+        # to conflict with this engine's raw SHA-256, create-only protocol.
+        for key in list(parameters):
+            if key.startswith("Checksum") or key in {"ContentEncoding", "IfMatch"}:
+                parameters.pop(key)
+        return parameters
+
     def _head(self, relative, *, for_put=False):
         try:
-            return self.client.head_object(Bucket=self.bucket, Key=self._key(relative))
+            return self.client.head_object(
+                **{
+                    **self._parameters(relative, read=True),
+                    "Bucket": self.bucket,
+                    "Key": self._key(relative),
+                }
+            )
         except Exception as exc:
             if _status(exc) == 404:
                 return None
@@ -162,15 +197,17 @@ class S3IndexStore:
         for attempt in range(3):
             stream.seek(0)
             try:
-                self.client.put_object(
+                parameters = self._parameters(relative)
+                parameters.update(
                     Bucket=self.bucket,
                     Key=self._key(relative),
                     Body=stream,
                     ContentLength=size,
-                    Metadata={"sha256": digest},
+                    Metadata={**parameters.get("Metadata", {}), "sha256": digest},
                     ChecksumSHA256=base64.b64encode(bytes.fromhex(digest)).decode("ascii"),
                     IfNoneMatch="*",
                 )
+                self.client.put_object(**parameters)
                 return
             except Exception as exc:
                 if _status(exc) == 412:
@@ -186,7 +223,13 @@ class S3IndexStore:
 
     def _get(self, relative):
         try:
-            return self.client.get_object(Bucket=self.bucket, Key=self._key(relative))
+            return self.client.get_object(
+                **{
+                    **self._parameters(relative, read=True),
+                    "Bucket": self.bucket,
+                    "Key": self._key(relative),
+                }
+            )
         except Exception as exc:
             # In particular, 403, 404 and transport errors are not artifact misses.
             raise IndexUnavailable("Cannot download an S3 index object") from exc

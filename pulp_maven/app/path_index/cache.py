@@ -19,6 +19,7 @@ from .s3 import CacheFull, IndexUnavailable
 from .state import descriptor, read
 
 log = logging.getLogger(__name__)
+LOAD_WORKERS = 2
 
 
 def prepare(repository, version_id, *, digest=None):
@@ -40,9 +41,7 @@ class ViewCache:
         self.views = OrderedDict()
         self.pending = {}
         self.retry = {}
-        self.pool = ThreadPoolExecutor(
-            max_workers=settings.MAVEN_PATH_INDEX_BUILD_WORKERS, thread_name_prefix="maven-index"
-        )
+        self.pool = ThreadPoolExecutor(max_workers=LOAD_WORKERS, thread_name_prefix="maven-index")
 
     def _load(self, key):
         from pulp_maven.app.models import MavenRepository
@@ -99,7 +98,7 @@ class ViewCache:
             elif (
                 key not in self.pending
                 and self.retry.get(key, 0) <= time.monotonic()
-                and len(self.pending) < settings.MAVEN_PATH_INDEX_BUILD_WORKERS
+                and len(self.pending) < LOAD_WORKERS
             ):
                 self.pending[key] = True
                 self.pool.submit(self._load, key)

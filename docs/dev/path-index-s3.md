@@ -8,6 +8,10 @@ no need to download one copy per gunicorn worker. This document describes the st
 backend itself. See the [experimental Maven integration](path-index-integration.md)
 for repository hooks, synchronous publication, and content serving.
 
+The Maven integration takes its S3 client, bucket, location, and object options from
+the repository's domain. Its namespace is derived automatically from that storage
+identity. The explicit client and prefix below are for standalone engine use.
+
 ## Using the backend
 
 Install the optional SDK with `pip install 'pulp-maven[path-index-s3]'`. Create the

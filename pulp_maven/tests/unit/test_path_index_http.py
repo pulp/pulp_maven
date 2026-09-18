@@ -32,7 +32,7 @@ def test_storage_namespace_changes_invalidate_cached_profile(settings):
 
     scope = domain()
     previous = profile(scope)
-    settings.MAVEN_PATH_INDEX_S3_PREFIX = "fresh-experiment"
+    scope.storage_settings = {"location": "fresh-experiment"}
     assert profile(scope) != previous
 
 
@@ -41,7 +41,6 @@ def test_storage_namespace_changes_invalidate_cached_profile(settings):
     "backend", ["storages.backends.s3.S3Storage", "storages.backends.azure_storage.AzureStorage"]
 )
 def test_html_paths_stream_inline_with_cache_headers(path, backend, settings):
-    settings.MAVEN_PATH_INDEX_MODE = "serve"
     settings.MAVEN_PATH_INDEX_REDIRECT_THRESHOLD = 1
     raw = b"<html>listing</html>"
     scope = domain()
@@ -100,11 +99,12 @@ def test_html_paths_stream_inline_with_cache_headers(path, backend, settings):
                 assert response.headers["Last-Modified"]
                 assert response.headers["Content-Length"] == str(len(raw))
                 assert "Location" not in response.headers
-        assert stream.closed
         scope.get_storage.assert_not_called()
         view.lookup.assert_called_once_with(path)
+        return stream
 
-    asyncio.run(exercise())
+    # ArtifactResponse closes in the executor; asyncio.run drains it on exit.
+    assert asyncio.run(exercise()).closed
 
 
 def test_conditional_html_and_head_do_not_read_storage(settings):
@@ -186,13 +186,12 @@ def test_if_none_match_precedes_if_modified_since():
             )
             assert result.status == 200
             assert await result.read() == raw
-        assert stream.closed
+        return stream
 
-    asyncio.run(exercise())
+    assert asyncio.run(exercise()).closed
 
 
 def test_lookup_deletion_and_redirect_variants(settings):
-    settings.MAVEN_PATH_INDEX_MODE = "serve"
     distro = SimpleNamespace(remote_id=None, checkpoint=False, content_guard=None)
     view = Mock()
     view.lookup.side_effect = lambda path: entry() if path == "1.0/" else None
