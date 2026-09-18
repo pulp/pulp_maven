@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import io
+import threading
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -17,6 +18,17 @@ from pulpcore.plugin.models import Domain
 from pulp_maven.app.path_index.content import artifact, indexed_response
 from pulp_maven.app.path_index.format import Entry
 from pulp_maven.app.path_index.http import IndexedArtifactResponse
+
+
+class SizedBytes(io.BytesIO):
+    def __init__(self, raw):
+        super().__init__(raw)
+        self.size = len(raw)
+        self.close_finished = threading.Event()
+
+    def close(self):
+        super().close()
+        self.close_finished.set()
 
 
 def entry(raw=b"<html>listing</html>"):
@@ -50,9 +62,6 @@ def test_html_paths_stream_inline_with_cache_headers(path, backend, settings):
     distro = SimpleNamespace(remote_id=None, checkpoint=False, content_guard=None)
     view = Mock()
     view.lookup.return_value = entry(raw)
-
-    class SizedBytes(io.BytesIO):
-        size = len(raw)
 
     @contextmanager
     def lease(key):
@@ -99,12 +108,14 @@ def test_html_paths_stream_inline_with_cache_headers(path, backend, settings):
                 assert response.headers["Last-Modified"]
                 assert response.headers["Content-Length"] == str(len(raw))
                 assert "Location" not in response.headers
+                # Receiving the body can precede ArtifactResponse's executor
+                # cleanup. Keep the server alive until that cleanup completes.
+                assert await asyncio.to_thread(stream.close_finished.wait, 5)
         scope.get_storage.assert_not_called()
         view.lookup.assert_called_once_with(path)
-        return stream
+        assert stream.closed
 
-    # ArtifactResponse closes in the executor; asyncio.run drains it on exit.
-    assert asyncio.run(exercise()).closed
+    asyncio.run(exercise())
 
 
 def test_conditional_html_and_head_do_not_read_storage(settings):
@@ -158,9 +169,6 @@ def test_conditional_html_and_head_do_not_read_storage(settings):
 def test_if_none_match_precedes_if_modified_since():
     raw = b"<html>listing</html>"
 
-    class SizedBytes(io.BytesIO):
-        size = len(raw)
-
     async def exercise():
         app = web.Application()
         stream = SizedBytes(raw)
@@ -186,9 +194,10 @@ def test_if_none_match_precedes_if_modified_since():
             )
             assert result.status == 200
             assert await result.read() == raw
-        return stream
+            assert await asyncio.to_thread(stream.close_finished.wait, 5)
+        assert stream.closed
 
-    assert asyncio.run(exercise()).closed
+    asyncio.run(exercise())
 
 
 def test_lookup_deletion_and_redirect_variants(settings):
@@ -258,9 +267,6 @@ def test_indexed_artifact_streaming_ranges_and_head():
     raw = b"0123456789"
     scope = domain()
     scope.storage_class = "pulpcore.app.models.storage.FileSystem"
-
-    class SizedBytes(io.BytesIO):
-        size = len(raw)
 
     async def exercise():
         opened = []
