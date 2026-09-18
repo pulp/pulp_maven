@@ -5,53 +5,61 @@ import json
 
 from django.conf import settings
 
+S3_BACKENDS = {"storages.backends.s3.S3Storage", "storages.backends.s3boto3.S3Boto3Storage"}
+
 
 def enabled(repository):
-    return (
-        getattr(settings, "MAVEN_PATH_INDEX_MODE", "off") in {"shadow", "serve"}
-        and repository.pulp_labels.get("path_index") == "true"
-    )
+    return repository.pulp_labels.get("path_index") == "true"
 
 
 def profile(domain):
     """Do not mix indexes after a domain/storage configuration change."""
     data = {
-        "revision": 2,
+        "revision": 3,
         "domain": str(domain.pk),
         "storage": domain.storage_class,
-        "options": domain.storage_settings,
-        "default": settings.STORAGES if domain.name == "default" else None,
-        "index": {
-            "bucket": settings.MAVEN_PATH_INDEX_S3_BUCKET,
-            "prefix": settings.MAVEN_PATH_INDEX_S3_PREFIX,
-            "endpoint": settings.MAVEN_PATH_INDEX_S3_ENDPOINT,
-        },
     }
+    if domain.storage_class in S3_BACKENDS:
+        storage = domain.get_storage()
+        # The default domain can obtain these from legacy AWS_* settings rather
+        # than STORAGES. Reading attributes does not create a client or do S3 I/O.
+        data["s3"] = {
+            name: getattr(storage, name)
+            for name in ("bucket_name", "location", "endpoint_url", "region_name")
+        }
+    else:
+        data["options"] = domain.storage_settings
     return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def store(repository):
-    """Instantiate after fork; credentials use boto3's normal credential chain."""
-    if not settings.MAVEN_PATH_INDEX_S3_BUCKET:
-        raise ValueError("MAVEN_PATH_INDEX_S3_BUCKET is required")
+    """Reuse the domain's S3 configuration, obtaining its client after fork."""
+    domain = repository.pulp_domain
+    if domain.storage_class not in S3_BACKENDS:
+        raise ValueError("Maven path indexes require an S3 storage backend on the domain")
+    storage = domain.get_storage()
 
-    import boto3
-    from botocore.config import Config
+    def object_parameters(key):
+        parameters = dict(storage.get_object_parameters(key))
+        if storage.default_acl:
+            parameters.setdefault("ACL", storage.default_acl)
+        return parameters
 
     from .s3 import S3IndexStore
 
+    # Configuration changes get a fresh immutable namespace so a retained
+    # version can be rebuilt without overwriting its previous manifest.
+    prefix = "/".join(
+        part for part in (storage.location.strip("/"), "maven-path-index", profile(domain)) if part
+    )
     return S3IndexStore(
-        boto3.client(
-            "s3",
-            endpoint_url=settings.MAVEN_PATH_INDEX_S3_ENDPOINT,
-            region_name=settings.MAVEN_PATH_INDEX_S3_REGION,
-            config=Config(connect_timeout=5, read_timeout=30, retries={"max_attempts": 2}),
-        ),
-        settings.MAVEN_PATH_INDEX_S3_BUCKET,
-        settings.MAVEN_PATH_INDEX_S3_PREFIX,
+        storage.connection.meta.client,
+        storage.bucket_name,
+        prefix,
         settings.MAVEN_PATH_INDEX_CACHE_DIR,
         str(repository.pulp_domain_id),
         str(repository.pk),
         max_cache_bytes=settings.MAVEN_PATH_INDEX_CACHE_BYTES,
         work_directory=settings.MAVEN_PATH_INDEX_WORK_DIR,
+        object_parameters=object_parameters,
     )

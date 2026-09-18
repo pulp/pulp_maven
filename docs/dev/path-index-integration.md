@@ -1,8 +1,10 @@
 # Experimental Maven path-index integration
 
 See the [glossary](path-index-glossary.md), [engine](path-index-experiment.md), and
-[S3 backend](path-index-s3.md). This integration is disabled by default. It requires
-`pulp_labels["path_index"] = "true"` and global mode `shadow` or `serve`.
+[S3 backend](path-index-s3.md). Enable this integration with
+`pulp_labels["path_index"] = "true"` on a repository whose domain uses S3 storage.
+That label is the only feature switch: enabled repositories publish indexes and
+serve from prepared views. Repositories without the label use the existing flow.
 
 The supported upload workflow creates artifacts/content as orphans, then adds them
 with the repository `modify` endpoint. Index publication happens in that task's
@@ -75,14 +77,15 @@ the existing request flow.
 
 ## Rollout and maintenance
 
-1. Install `pulp-maven[path-index-s3]`. Configure task and content processes
-   consistently, including bucket/prefix and shared local cache paths within each
-   pod. Use the normal boto3 credential chain. GetObject and PutObject, including
-   conditional writes, are required; ListBucket and DeleteObject are not.
-2. Select `MAVEN_PATH_INDEX_MODE = "shadow"` and label a test repository. Shadow mode
-   publishes during finalization and warms requested views, but responses still use
-   the existing resolver. S3 failure fails writes in both shadow and serve modes.
-   Shadow mode does not automatically compare index and database answers.
+1. Install `pulp-maven[path-index-s3]` alongside Pulp's S3 storage dependencies.
+   Configure the domain's S3 storage and a shared local cache path within each pod.
+   Indexes use the same bucket, location, client credentials, endpoint, region,
+   TLS/client options, and storage encryption options as domain artifact storage.
+   GetObject and PutObject, including conditional writes, are required; ListBucket
+   and DeleteObject are not. Encrypted storage also needs its usual key permissions.
+2. Set `pulp_labels["path_index"] = "true"` on a test repository. Finalization now
+   publishes indexes synchronously; S3 failure fails the modify task. Prepared
+   indexes serve content automatically. There is no global mode setting.
 3. POST `<repository_href>build_path_index/` for an existing repository. This task
    reserves the repository, builds the latest completed version, then records its
    descriptor. Modify tasks queue during the build. Existing content keeps serving
@@ -93,7 +96,7 @@ the existing request flow.
    not a check of current S3 availability or pod cache warmth. `error` describes an
    incompatible descriptor. Failed write details are on the modify task.
 5. Exercise replacements, removals, bulk modify, directory crawls, retention, and
-   pinned versions in staging. Set mode to `serve` to use warm indexed responses.
+   pinned versions in staging.
    Cold requests still use DB fallback, so warm pods before admitting a large CDN
    request rate. Index-aware readiness and traffic admission remain deployment work.
 
@@ -112,18 +115,26 @@ view and needs extra disk space. These operations can lengthen the repository qu
 Both POST actions require repository repair and view permissions; the status action
 requires view permission. Customized access policies must grant these actions.
 
-Rollback sets mode to `off` or removes the `path_index` label. It does not change the
+Rollback removes the `path_index` label. Readers observe the change after the
+descriptor TTL expires. It does not change the
 independent HTML option or delete index objects. Re-enabling after unindexed versions
 causes a new baseline on the next change, or an explicit build can populate it first.
-For changed storage identity or corrupt immutable objects, use a fresh S3 prefix and
-rebuild the latest completed version before modifying it. Never overwrite immutable
-objects to repair them.
+After changing the domain's storage identity, rebuild the latest completed version
+before modifying it. The new storage profile selects a fresh index namespace
+automatically. Corrupt immutable objects require storage recovery or a fresh
+repository and index build; `build_path_index` does not overwrite them.
+
+When upgrading from a draft with separate index S3 settings or global modes, run
+`build_path_index` for each enabled repository before resuming modifications.
+Existing descriptors use an older storage profile; readers fall back to the DB
+until the index is rebuilt in the domain's bucket and namespace.
 
 Earlier revisions of this draft used experimental journal tables and a scheduled
 `maven-path-index-reconcile` task. They are not an upgrade target: on a test deployment,
 stop writers, use that old revision to migrate Maven back to `0014`, and remove its
 reconciliation schedule before installing this revision. Preserve ordinary Pulp
-content, use a fresh index prefix, and rebuild. This revision adds no DB migration.
+content and rebuild. This revision's storage profile selects a new index namespace
+and adds no DB migration.
 
 ## Settings
 
@@ -131,21 +142,27 @@ All names below have the prefix `MAVEN_PATH_INDEX_`.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `MODE` | `"off"` | `off`, `shadow`, or `serve` |
-| `S3_BUCKET` | `""` | Required index bucket |
-| `S3_PREFIX` | `"maven-path-index"` | Isolated immutable-object namespace |
-| `S3_ENDPOINT` / `S3_REGION` | `None` | boto3 endpoint/region overrides |
 | `CACHE_DIR` | `"/var/lib/pulp/path-index-cache"` | Shared local disk within a pod |
 | `CACHE_BYTES` | 4 GiB | Index segment cache allowance |
 | `MAX_VIEWS` | 8 | Maximum mapped views per content process |
-| `BUILD_WORKERS` | 2 | Maximum concurrent view preparations per process |
 | `REFRESH_SECONDS` | 2 | Descriptor TTL and preparation retry interval |
 | `WORK_DIR` | `None` | Additional builder scratch, default under the cache |
 | `REDIRECT_THRESHOLD` | `None` | Optional S3 redirect threshold in bytes |
 
+There are no index-specific S3 settings. The integration obtains storage through
+`domain.get_storage()`, including the default domain's configured Django storage
+and legacy `AWS_*` settings. Object keys are
+`<domain location>/maven-path-index/<storage profile>/<domain UUID>/<repository UUID>/...`.
+The profile identifies the backend, bucket, location, endpoint, and region; it does
+not include credentials, so credential rotation alone does not require rebuilding.
+Index writes preserve domain object options such as ACLs, encryption, storage class,
+and additional metadata. The engine controls its own uncompressed payload,
+SHA-256 checksum, digest metadata, and conditional creation.
+
+Background view preparation uses a fixed two-thread pool per content process.
 Workers sharing a directory must use identical budgets. Use a disk-backed Kubernetes
-`emptyDir` shared by the content workers in each pod. Boto3 clients are created after
-forking. The known hosted large-file redirect threshold is `1_700_000_000` bytes;
+`emptyDir` shared by the content workers in each pod. Domain S3 clients are obtained
+after forking. The known hosted large-file redirect threshold is `1_700_000_000` bytes;
 configure it explicitly when that policy is required. Otherwise the domain's
 `redirect_to_object_storage` setting controls S3 redirects. Validate against the
 actual hosted image and middleware before rollout.

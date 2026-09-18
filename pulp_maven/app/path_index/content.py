@@ -83,8 +83,6 @@ def artifact(entry, domain):
 
 
 def indexed_response(distribution, path):
-    if settings.MAVEN_PATH_INDEX_MODE == "off":
-        return None
     if distribution.remote_id or distribution.checkpoint:
         return None
     # Redirect guards implement a separate URL/signature contract.
@@ -95,7 +93,7 @@ def indexed_response(distribution, path):
     if key is None:
         return None
     with cache().lease(key) as view:
-        if view is None or settings.MAVEN_PATH_INDEX_MODE != "serve":
+        if view is None:
             return None
         entry = view.lookup(path)
         if entry is None and path and not path.endswith("/") and view.lookup(path + "/"):

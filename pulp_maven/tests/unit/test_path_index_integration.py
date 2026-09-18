@@ -57,7 +57,6 @@ def repository(settings, monkeypatch):
         },
     )
     set_domain(default)
-    settings.MAVEN_PATH_INDEX_MODE = "shadow"
     # Isolate index/HTML work from the independent Maven metadata and Bloom costs.
     for name in ("_ensure_packages", "_generate_metadata", "_generate_bloom_filter"):
         monkeypatch.setattr(MavenRepository, name, lambda *args: None)
@@ -182,6 +181,26 @@ def test_noop_does_not_publish(repository, storage):
     assert len(storage.client.events("PUT")) == before
 
 
+def test_removing_label_disables_writes_and_serving(repository, storage, settings):
+    from pulp_maven.app.models import MavenDistribution
+    from pulp_maven.app.path_index.content import descriptor
+    from pulp_maven.app.path_index.state import INFO_KEY
+
+    settings.MAVEN_PATH_INDEX_REFRESH_SECONDS = 0
+    change(repository, [content("com/example/lib/1.0/a.jar")])
+    distro = MavenDistribution.objects.create(
+        name=str(uuid4()), base_path=str(uuid4()), repository=repository
+    )
+    assert descriptor(distro)
+    before = len(storage.client.events("PUT"))
+    repository.pulp_labels = {}
+    repository.save()
+    assert descriptor(distro) is None
+    version = change(repository, [content("com/example/lib/1.0/b.jar")])
+    assert INFO_KEY not in version.info
+    assert len(storage.client.events("PUT")) == before
+
+
 def test_bulk_modify_publishes_one_delta_and_preserves_pinned_version(repository, storage):
     from pulpcore.plugin.tasking import add_and_remove
 
@@ -205,10 +224,12 @@ def test_bootstrap_retained_version_without_new_version(repository, storage, set
     from pulp_maven.app.path_index.state import INFO_KEY
     from pulp_maven.app.tasks.path_index import build_path_index
 
-    settings.MAVEN_PATH_INDEX_MODE = "off"
+    repository.pulp_labels = {}
+    repository.save()
     version = change(repository, [content("com/example/lib/1.0/a.jar")])
     assert INFO_KEY not in version.info
-    settings.MAVEN_PATH_INDEX_MODE = "shadow"
+    repository.pulp_labels = {"path_index": "true"}
+    repository.save()
     count = repository.versions.count()
     build_path_index(repository.pk, version.pk)
     assert repository.versions.count() == count
@@ -401,7 +422,8 @@ def test_fresh_namespace_rebuilds_incompatible_profile(repository, storage, sett
 
     version = change(repository, [content("com/example/lib/1.0/a.jar")])
     old = version.info[INFO_KEY]["profile"]
-    settings.MAVEN_PATH_INDEX_S3_PREFIX = "new-experiment"
+    repository.pulp_domain.storage_settings = {"location": "new-experiment"}
+    repository.pulp_domain.save(update_fields=["storage_settings"], skip_hooks=True)
     storage.prefix = "new-experiment"
     build_path_index(repository.pk)
     version.refresh_from_db()
