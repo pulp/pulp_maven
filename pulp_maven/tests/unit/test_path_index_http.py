@@ -1,11 +1,9 @@
-"""Request semantics and shared HTML cache without a database or an S3 server."""
+"""Indexed artifact and inline listing responses without a database or an S3 server."""
 
 import asyncio
-import fcntl
 import hashlib
 import io
 from contextlib import contextmanager
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from uuid import uuid4
@@ -16,9 +14,8 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from pulpcore.plugin.models import Domain
 
-from pulp_maven.app.path_index.content import HTMLResponse, artifact, indexed_response
+from pulp_maven.app.path_index.content import artifact, indexed_response
 from pulp_maven.app.path_index.format import Entry
-from pulp_maven.app.path_index.html_cache import open_html
 from pulp_maven.app.path_index.http import IndexedArtifactResponse
 
 
@@ -39,109 +36,159 @@ def test_storage_namespace_changes_invalidate_cached_profile(settings):
     assert profile(scope) != previous
 
 
-def test_conditional_html_does_not_open_storage():
+@pytest.mark.parametrize("path", ["", "com/example/", "index.html", "com/example/index.html"])
+@pytest.mark.parametrize(
+    "backend", ["storages.backends.s3.S3Storage", "storages.backends.azure_storage.AzureStorage"]
+)
+def test_html_paths_stream_inline_with_cache_headers(path, backend, settings):
+    settings.MAVEN_PATH_INDEX_MODE = "serve"
+    settings.MAVEN_PATH_INDEX_REDIRECT_THRESHOLD = 1
+    raw = b"<html>listing</html>"
+    scope = domain()
+    scope.storage_class = backend
+    scope.redirect_to_object_storage = True
+    scope.get_storage = Mock()
+    distro = SimpleNamespace(remote_id=None, checkpoint=False, content_guard=None)
+    view = Mock()
+    view.lookup.return_value = entry(raw)
+
+    class SizedBytes(io.BytesIO):
+        size = len(raw)
+
+    @contextmanager
+    def lease(key):
+        yield view
+
     async def exercise():
-        item = entry()
+        async def handle(request):
+            response = indexed_response(distro, path)
+            assert isinstance(response, IndexedArtifactResponse)
+            return response
+
+        app = web.Application()
+        app.router.add_get("/", handle)
+        stream = SizedBytes(raw)
+        with (
+            patch(
+                "pulp_maven.app.path_index.content.descriptor",
+                return_value=("repo", "version", "profile", "digest"),
+            ),
+            patch(
+                "pulp_maven.app.path_index.content.cache", return_value=SimpleNamespace(lease=lease)
+            ),
+            patch("pulp_maven.app.path_index.content.get_domain", return_value=scope),
+            patch(
+                "pulp_maven.app.path_index.content.artifact",
+                return_value=SimpleNamespace(file=stream),
+            ),
+            patch(
+                "pulp_maven.app.path_index.content.Handler.response_headers",
+                return_value={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Disposition": "attachment",
+                },
+            ),
+        ):
+            async with TestClient(TestServer(app)) as client:
+                response = await client.get("/", allow_redirects=False)
+                assert response.status == 200
+                assert await response.read() == raw
+                assert response.headers["Content-Type"] == "text/html; charset=utf-8"
+                assert response.headers["Content-Disposition"] == "inline"
+                assert response.headers["Cache-Control"] == "public, max-age=0, must-revalidate"
+                assert response.headers["ETag"] == f'"{entry(raw).artifact_sha256.hex()}"'
+                assert response.headers["Last-Modified"]
+                assert response.headers["Content-Length"] == str(len(raw))
+                assert "Location" not in response.headers
+        assert stream.closed
+        scope.get_storage.assert_not_called()
+        view.lookup.assert_called_once_with(path)
+
+    asyncio.run(exercise())
+
+
+def test_conditional_html_and_head_do_not_read_storage(settings):
+    settings.MAVEN_PATH_INDEX_REDIRECT_THRESHOLD = 1
+    scope = domain()
+    scope.storage_class = "storages.backends.s3.S3Storage"
+    scope.redirect_to_object_storage = True
+    scope.get_storage = Mock()
+    item = entry()
+    file = Mock(size=item.size)
+    file.read.side_effect = AssertionError("read storage")
+    file.seek.side_effect = AssertionError("opened storage")
+
+    async def exercise():
         app = web.Application()
 
         async def handle(request):
-            return HTMLResponse(item, domain(), {})
+            return IndexedArtifactResponse(
+                SimpleNamespace(file=file), item, scope, "index.html", {}, inline_html=True
+            )
 
         app.router.add_get("/", handle)
         async with TestClient(TestServer(app)) as client:
-            with patch(
-                "pulp_maven.app.path_index.content.open_html", side_effect=AssertionError("opened")
-            ):
-                result = await client.get(
-                    "/", headers={"If-None-Match": f'"other", W/"{item.artifact_sha256.hex()}"'}
-                )
-                assert result.status == 304
-                assert await result.read() == b""
-                result = await client.get("/", headers={"If-Match": '"other"'})
-                assert result.status == 412
-                result = await client.head("/")
-                assert result.status == 200
-                assert result.headers["Content-Length"] == str(item.size)
+            result = await client.get(
+                "/", headers={"If-None-Match": f'"other", W/"{item.artifact_sha256.hex()}"'}
+            )
+            assert result.status == 304
+            assert await result.read() == b""
+            assert result.headers["Cache-Control"] == "public, max-age=0, must-revalidate"
+            assert result.headers["ETag"] == f'"{item.artifact_sha256.hex()}"'
+            assert result.headers["Last-Modified"]
+            result = await client.get("/", headers={"If-Match": '"other"'})
+            assert result.status == 412
+            result = await client.get(
+                "/", headers={"If-Modified-Since": "Wed, 01 Jan 2031 00:00:00 GMT"}
+            )
+            assert result.status == 304
+            result = await client.head("/", allow_redirects=False)
+            assert result.status == 200
+            assert await result.read() == b""
+            assert result.headers["Content-Length"] == str(item.size)
+            assert result.headers["Content-Type"] == "text/html; charset=utf-8"
+            assert result.headers["Content-Disposition"] == "inline"
+        file.read.assert_not_called()
+        file.seek.assert_not_called()
+        scope.get_storage.assert_not_called()
 
     asyncio.run(exercise())
 
 
 def test_if_none_match_precedes_if_modified_since():
+    raw = b"<html>listing</html>"
+
+    class SizedBytes(io.BytesIO):
+        size = len(raw)
+
     async def exercise():
-        raw = b"<html>listing</html>"
         app = web.Application()
+        stream = SizedBytes(raw)
 
         async def handle(request):
-            return HTMLResponse(entry(raw), domain(), {})
+            return IndexedArtifactResponse(
+                SimpleNamespace(file=stream),
+                entry(raw),
+                domain(),
+                "index.html",
+                {},
+                inline_html=True,
+            )
 
         app.router.add_get("/", handle)
-        stream = io.BytesIO(raw)
-        with (
-            patch("pulp_maven.app.path_index.content.artifact", return_value=Mock()),
-            patch("pulp_maven.app.path_index.content.open_html", return_value=(stream, stream)),
-        ):
-            async with TestClient(TestServer(app)) as client:
-                result = await client.get(
-                    "/",
-                    headers={
-                        "If-None-Match": '"different"',
-                        "If-Modified-Since": "Wed, 01 Jan 2031 00:00:00 GMT",
-                    },
-                )
-                assert result.status == 200
-                assert await result.read() == raw
+        async with TestClient(TestServer(app)) as client:
+            result = await client.get(
+                "/",
+                headers={
+                    "If-None-Match": '"different"',
+                    "If-Modified-Since": "Wed, 01 Jan 2031 00:00:00 GMT",
+                },
+            )
+            assert result.status == 200
+            assert await result.read() == raw
         assert stream.closed
 
     asyncio.run(exercise())
-
-
-def test_shared_html_cache_and_budget_pin(tmp_path, settings):
-    settings.MAVEN_PATH_INDEX_CACHE_DIR = str(tmp_path)
-    raw = b"<html>listing</html>"
-    settings.MAVEN_PATH_INDEX_HTML_BYTES = len(raw)
-    scope = domain()
-    source = Mock()
-    source.file.open.side_effect = lambda mode: io.BytesIO(raw)
-    stream, owner = open_html(entry(raw), scope, source)
-    assert stream.read() == raw
-    # A second worker gets the same bytes without opening the object again.
-    other, other_owner = open_html(entry(raw), scope, source)
-    assert other.read() == raw
-    assert source.file.open.call_count == 1
-    # Pinned content cannot be evicted to make space for another page.
-    raw2 = b"<html>changed</html>"
-    source2 = Mock()
-    source2.file.open.side_effect = lambda mode: io.BytesIO(raw2)
-    third, third_owner = open_html(entry(raw2), scope, source2)
-    assert third.read() == raw2
-    assert sum(p.stat().st_size for p in tmp_path.glob("html/*/*.html")) <= len(raw)
-    owner.close()
-    other_owner.close()
-    third_owner.close()
-
-
-def test_html_cache_read_failure_releases_pin(tmp_path, settings):
-    settings.MAVEN_PATH_INDEX_CACHE_DIR = str(tmp_path)
-    raw = b"<html>listing</html>"
-    scope = domain()
-    source = Mock()
-    source.file.open.side_effect = lambda mode: io.BytesIO(raw)
-    _, owner = open_html(entry(raw), scope, source)
-    owner.close()
-    page = next(tmp_path.glob("html/*/*.html"))
-    original_open = Path.open
-
-    def fail(self, *args, **kwargs):
-        if self == page:
-            raise OSError("read failure")
-        return original_open(self, *args, **kwargs)
-
-    with patch.object(Path, "open", fail):
-        stream, owner = open_html(entry(raw), scope, source)
-        assert stream.read() == raw
-        owner.close()
-    with page.with_suffix(".lock").open("a+b") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 def test_lookup_deletion_and_redirect_variants(settings):

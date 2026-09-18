@@ -1,12 +1,10 @@
 """Optional content hook. Core still authorizes every request before this hook."""
 
-import asyncio
 import threading
 import time
 from collections import OrderedDict
 
 from aiohttp import web
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db.models.fields.files import FieldFile
 
@@ -17,8 +15,7 @@ from pulpcore.plugin.util import get_domain
 from .cache import cache
 from .config import enabled, profile
 from .format import InvalidIndex
-from .html_cache import open_html
-from .http import SUPPORTED_BACKENDS, IndexedArtifactResponse, conditional_status, headers_for
+from .http import SUPPORTED_BACKENDS, IndexedArtifactResponse
 from .state import descriptor as version_descriptor
 
 _descriptors = OrderedDict()
@@ -85,51 +82,6 @@ def artifact(entry, domain):
     return obj
 
 
-class HTMLResponse(web.StreamResponse):
-    """Request-aware conditional handling before opening the already generated page."""
-
-    def __init__(self, entry, domain, headers):
-        super().__init__(headers=headers_for(entry, headers))
-        self.entry, self.domain = entry, domain
-        self.content_type = "text/html"
-        self.charset = "utf-8"
-
-    async def prepare(self, request):
-        if self.prepared:
-            return await super().prepare(request)
-        if status := conditional_status(request, self.entry):
-            self.set_status(status)
-            return await super().prepare(request)
-        self.content_length = self.entry.size
-        if request.method == "HEAD":
-            return await super().prepare(request)
-        # Bounded chunks preserve low memory use even for unusually large listings.
-        obj = artifact(self.entry, self.domain)
-        opening = asyncio.create_task(sync_to_async(open_html)(self.entry, self.domain, obj))
-        try:
-            stream, owner = await asyncio.shield(opening)
-        except asyncio.CancelledError:
-            # A running storage call cannot be canceled. Reclaim its eventual file/lock.
-            def release(future):
-                if not future.cancelled() and future.exception() is None:
-                    future.result()[1].close()
-
-            opening.add_done_callback(release)
-            raise
-        try:
-            writer = await super().prepare(request)
-            remaining = self.entry.size
-            while remaining:
-                data = await sync_to_async(stream.read)(min(256 * 1024, remaining))
-                if not data:
-                    raise OSError("Truncated HTML artifact")
-                await self.write(data)
-                remaining -= len(data)
-            return writer
-        finally:
-            await sync_to_async(owner.close)()
-
-
 def indexed_response(distribution, path):
     if settings.MAVEN_PATH_INDEX_MODE == "off":
         return None
@@ -150,10 +102,11 @@ def indexed_response(distribution, path):
             raise web.HTTPMovedPermanently(path.rsplit("/", 1)[-1] + "/")
         if entry is None:
             raise web.HTTPNotFound()
-        if not path or path.endswith("/") or path == "index.html" or path.endswith("/index.html"):
-            return HTMLResponse(entry, get_domain(), Handler.response_headers(path, distribution))
+        inline_html = (
+            not path or path.endswith("/") or path == "index.html" or path.endswith("/index.html")
+        )
         domain = get_domain()
-        if domain.storage_class not in SUPPORTED_BACKENDS:
+        if not inline_html and domain.storage_class not in SUPPORTED_BACKENDS:
             return None
         return IndexedArtifactResponse(
             artifact(entry, domain),
@@ -161,4 +114,5 @@ def indexed_response(distribution, path):
             domain,
             path,
             Handler.response_headers(path, distribution),
+            inline_html=inline_html,
         )
