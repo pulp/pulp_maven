@@ -273,6 +273,59 @@ def test_upload_duplicate_maven_artifact(
 
 
 @pytest.mark.parallel
+def test_concurrent_upload_identical_maven_artifact(
+    maven_artifact_api_client,
+    tmp_path,
+):
+    """Concurrent uploads of an identical Maven artifact must not return HTTP 500.
+
+    Regression test for https://github.com/pulp/pulp_maven/issues/499 (PULP-2437):
+    the synchronous upload endpoint performed a non-atomic get-or-create on the
+    underlying Artifact. Two simultaneous uploads of the same file both missed the
+    initial lookup, both attempted to save the Artifact, and the loser raised an
+    uncaught IntegrityError on the per-domain sha256 unique constraint, surfacing
+    as an HTTP 500. Concurrent duplicate uploads must instead be idempotent and
+    resolve to the same content unit.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from pulpcore.client.pulp_maven import ApiException
+
+    unique = uuid.uuid4().hex
+    filename = "concurrent-1.0.0.jar"
+    relative_path = f"com/example/{unique}/concurrent/1.0.0/{filename}"
+
+    file_content = os.urandom(128)
+    temp_file = tmp_path / filename
+    temp_file.write_bytes(file_content)
+
+    concurrency = 10
+
+    def _upload(_):
+        try:
+            return maven_artifact_api_client.upload(
+                relative_path=relative_path,
+                file=str(temp_file),
+            )
+        except ApiException as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        results = list(executor.map(_upload, range(concurrency)))
+
+    errors = [r for r in results if isinstance(r, ApiException)]
+    server_errors = [e for e in errors if e.status is not None and 500 <= int(e.status) < 600]
+    assert not server_errors, (
+        "Concurrent identical uploads returned server errors: "
+        f"{[(e.status, e.body) for e in server_errors]}"
+    )
+    assert not errors, f"Unexpected upload errors: {[(e.status, e.body) for e in errors]}"
+
+    hrefs = {r.pulp_href for r in results}
+    assert len(hrefs) == 1, f"Expected a single deduplicated content unit, got: {hrefs}"
+
+
+@pytest.mark.parallel
 def test_upload_maven_metadata(
     maven_metadata_api_client,
     tmp_path,

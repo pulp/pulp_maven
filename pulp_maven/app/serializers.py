@@ -2,7 +2,7 @@ import json
 from gettext import gettext as _
 
 import defusedxml.ElementTree as ET
-from django.db import DatabaseError
+from django.db import DatabaseError, IntegrityError, transaction
 from rest_framework import serializers
 
 from pulpcore.plugin import serializers as platform
@@ -105,14 +105,22 @@ class MavenArtifactUploadSerializer(MavenArtifactSerializer):
         data = super().validate(data)
         if "file" in data:
             file = data.pop("file")
+            sha256 = file.hashers["sha256"].hexdigest()
             try:
-                artifact = Artifact.objects.get(
-                    sha256=file.hashers["sha256"].hexdigest(), pulp_domain=get_domain_pk()
-                )
+                artifact = Artifact.objects.get(sha256=sha256, pulp_domain=get_domain_pk())
                 artifact.touch()
             except (Artifact.DoesNotExist, DatabaseError):
                 artifact = Artifact.init_and_validate(file)
-                artifact.save()
+                try:
+                    # A savepoint keeps the outer atomic() transaction usable if a
+                    # concurrent upload of the same content wins the race to insert.
+                    with transaction.atomic():
+                        artifact.save()
+                except IntegrityError:
+                    # Another request created the identical Artifact concurrently;
+                    # fetch and reuse it instead of surfacing a 500.
+                    artifact = Artifact.objects.get(sha256=sha256, pulp_domain=get_domain_pk())
+                    artifact.touch()
             data["artifact"] = artifact
         return data
 
@@ -219,14 +227,22 @@ class MavenMetadataUploadSerializer(MavenMetadataSerializer):
         data = super().validate(data)
         if "file" in data:
             file = data.pop("file")
+            sha256 = file.hashers["sha256"].hexdigest()
             try:
-                artifact = Artifact.objects.get(
-                    sha256=file.hashers["sha256"].hexdigest(), pulp_domain=get_domain_pk()
-                )
+                artifact = Artifact.objects.get(sha256=sha256, pulp_domain=get_domain_pk())
                 artifact.touch()
             except (Artifact.DoesNotExist, DatabaseError):
                 artifact = Artifact.init_and_validate(file)
-                artifact.save()
+                try:
+                    # A savepoint keeps the outer atomic() transaction usable if a
+                    # concurrent upload of the same content wins the race to insert.
+                    with transaction.atomic():
+                        artifact.save()
+                except IntegrityError:
+                    # Another request created the identical Artifact concurrently;
+                    # fetch and reuse it instead of surfacing a 500.
+                    artifact = Artifact.objects.get(sha256=sha256, pulp_domain=get_domain_pk())
+                    artifact.touch()
             data["artifact"] = artifact
         return data
 
