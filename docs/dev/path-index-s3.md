@@ -1,10 +1,12 @@
 # S3 storage and worker coordination
 
+See the [glossary](path-index-glossary.md) for storage, locking, memory, and cache terms.
+
 The experimental index can use S3 as its durable store. Every pod keeps a
 disposable local copy of the segments it reads. There is no EFS requirement and
-no need to download one copy per gunicorn worker. Repository finalization,
-background task dispatch, HTML generation, and auth/streaming integration remain
-separate work; this backend does not enable those paths.
+no need to download one copy per gunicorn worker. This document describes the storage
+backend itself. See the [experimental Maven integration](path-index-integration.md)
+for repository hooks, synchronous publication, and content serving.
 
 ## Using the backend
 
@@ -51,8 +53,8 @@ with store.open(manifest) as view:
 This is a synchronous API. Run builds, downloads, full integrity checks, and
 view opening/closing outside the aiohttp event-loop thread, with bounded worker
 concurrency. The application must manage cancellation and retain views until all
-requests using them have finished. A process-level mapping LRU and its async
-lifecycle are not included yet. Retain the fetched immutable Manifest and view
+requests using them have finished. The Maven integration supplies a process-level
+mapping LRU. For direct engine use, retain the fetched immutable Manifest and view
 for hot-path lookups; `read_version` itself makes an S3 GET each time it is called.
 
 ## Across pods: immutable S3 publication

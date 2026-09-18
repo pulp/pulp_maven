@@ -1,0 +1,1 @@
+Add opt-in Maven path indexes published synchronously to S3 before repository version completion. Use committed manifest descriptors and a shared pod cache for eligible content requests; fail modify if publication fails.
