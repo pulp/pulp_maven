@@ -8,6 +8,30 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.33.0 (2026-09-18) {: #0.33.0 }
+
+#### Features {: #0.33.0-feature }
+
+- Add opt-in Maven path indexes published synchronously to S3 before repository version completion. Use committed manifest descriptors and a shared pod cache for eligible content requests; fail modify if publication fails. Serve HTML listings inline through the shared indexed artifact response with HTTP cache validators and no separate local page cache.
+  Use the repository label as the only feature switch, inherit S3 configuration from the domain, and fix background view preparation at two threads per content process.
+  [#498](https://github.com/pulp/pulp_maven/issues/498)
+
+#### Bugfixes {: #0.33.0-bugfix }
+
+- Fixed an HTTP 500 (IntegrityError) when the same Maven artifact or metadata file was uploaded concurrently; duplicate uploads are now handled idempotently.
+  [#499](https://github.com/pulp/pulp_maven/issues/499)
+
+#### Improved Documentation {: #0.33.0-doc }
+
+- Document synchronous path-index publication, completed-version descriptors, failure recovery, and terminology.
+  [#498](https://github.com/pulp/pulp_maven/issues/498)
+
+#### Misc {: #0.33.0-misc }
+
+- [#497](https://github.com/pulp/pulp_maven/issues/497), [#2423](https://github.com/pulp/pulp_maven/issues/2423)
+
+---
+
 ## 0.30.0 (2026-09-15) {: #0.30.0 }
 
 #### Removals {: #0.30.0-removal }
