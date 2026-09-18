@@ -40,9 +40,6 @@ def store(repository):
 
     from .s3 import S3IndexStore
 
-    budget = settings.MAVEN_PATH_INDEX_CACHE_BYTES - settings.MAVEN_PATH_INDEX_HTML_BYTES
-    if budget < 16:
-        raise ValueError("The disk budget must exceed the HTML reservation")
     return S3IndexStore(
         boto3.client(
             "s3",
@@ -55,6 +52,6 @@ def store(repository):
         settings.MAVEN_PATH_INDEX_CACHE_DIR,
         str(repository.pulp_domain_id),
         str(repository.pk),
-        max_cache_bytes=budget,
+        max_cache_bytes=settings.MAVEN_PATH_INDEX_CACHE_BYTES,
         work_directory=settings.MAVEN_PATH_INDEX_WORK_DIR,
     )

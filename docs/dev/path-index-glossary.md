@@ -208,7 +208,7 @@ Summary and dirty-directory terms describe the independent HTML optimization.
 | Fork / process / worker | Fork creates a new process from an existing one. Gunicorn content workers are separate processes; Pulp task workers execute background tasks. A thread pool is another form of concurrency inside a process. |
 | Grace period | Extra time before removing old data, allowing existing users to finish. A future shared-object collector must account for active readers and caches as well as retained versions. |
 | Hot path / per-request work | Work repeated for client requests. Avoiding full scans, S3 downloads, and membership queries here is the reason to retain prepared views. |
-| Lease / pin / reader pin | A lease keeps a process-local view from closing during lookup. File pins hold shared locks against eviction while mappings or HTML readers are active. They do not pin a repository version in core. |
+| Lease / pin / reader pin | A lease keeps a process-local view from closing during lookup. File pins hold shared locks against eviction while index mappings are active. They do not pin a repository version in core. |
 | Local cache / kernel page cache | The local cache consists of downloaded files on pod storage. The kernel page cache consists of their recently used data in RAM. Their disk and memory costs are separate. |
 | Mapping / `mmap` | A memory mapping lets a process read a file through virtual memory. Mapping a file does not eagerly read every byte; the OS fetches needed pages. |
 | Negative caching | Caching an absence result. It must identify the correct version; an unavailable index cannot safely supply a negative result. The experiment does not add a shared negative-response cache. |

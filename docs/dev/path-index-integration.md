@@ -136,8 +136,7 @@ All names below have the prefix `MAVEN_PATH_INDEX_`.
 | `S3_PREFIX` | `"maven-path-index"` | Isolated immutable-object namespace |
 | `S3_ENDPOINT` / `S3_REGION` | `None` | boto3 endpoint/region overrides |
 | `CACHE_DIR` | `"/var/lib/pulp/path-index-cache"` | Shared local disk within a pod |
-| `CACHE_BYTES` | 4 GiB | Combined segment and HTML cache allowance |
-| `HTML_BYTES` | 64 MiB | Reserved cache portion for generated pages |
+| `CACHE_BYTES` | 4 GiB | Index segment cache allowance |
 | `MAX_VIEWS` | 8 | Maximum mapped views per content process |
 | `BUILD_WORKERS` | 2 | Maximum concurrent view preparations per process |
 | `REFRESH_SECONDS` | 2 | Descriptor TTL and preparation retry interval |
@@ -153,19 +152,22 @@ actual hosted image and middleware before rollout.
 
 ## HTML delivery and HTTP
 
-Generated HTML remains ordinary `MavenIndexPage` content. Indexed delivery adds a
-shared local page cache with per-file locks and reader pins. A page larger than the
-budget, or a cache full of active readers, streams from artifact storage.
+Generated HTML remains ordinary `MavenIndexPage` content. Listings use the shared
+indexed artifact response to stream directly from artifact storage as
+`text/html; charset=utf-8` with `Content-Disposition: inline`. Storage redirects
+are disabled for listings, including when the domain or size threshold redirects
+other artifacts. Akamai or another HTTP cache can cache and revalidate the pages;
+Pulp does not keep a separate local HTML cache.
 
 Responses use artifact SHA-256 ETags and membership Last-Modified dates. Conditional
-requests and HEAD can avoid artifact I/O. Public `ArtifactResponse` supplies artifact
-streaming and ranges; signed S3 URLs preserve the request method. HTML ranges may
-receive a full 200 response. All indexed paths use
+requests and HEAD can avoid artifact I/O. Public `ArtifactResponse` supplies
+streaming and range support for both artifacts and HTML; signed S3 URLs preserve the
+request method for redirected artifacts. All indexed paths use
 `public, max-age=0, must-revalidate`, since Pulp can replace release-looking paths too.
 
 ## Disk and operational limits
 
-The segment allowance is `CACHE_BYTES - HTML_BYTES`. A pod-wide fill lock bounds
+The segment allowance is `CACHE_BYTES`. A pod-wide fill lock bounds
 concurrent downloads, and each complete view holds shared locks against eviction.
 Budget for old and new views during switches; a full cache makes a new view fall back
 to the DB without evicting active files.
@@ -190,7 +192,8 @@ repository reservation for a substantial period.
 PostgreSQL lifecycle tests exercise the public `add_and_remove` task used by modify,
 including a batch of 200 orphan uploads, retention, S3 failure, DB failure after
 upload, backfill, no-ops, and compaction. A four-process test verifies shared segment
-downloads. HTTP tests cover validators, HEAD, ranges, redirects, and HTML cache pins.
+downloads. HTTP tests cover validators, HEAD, ranges, redirects, and inline HTML
+delivery without artifact reads for HEAD/304 responses.
 The engine's optional S3 wire tests exercise real conditional requests.
 
 These tests establish correctness, not production throughput. The 20M-artifact
