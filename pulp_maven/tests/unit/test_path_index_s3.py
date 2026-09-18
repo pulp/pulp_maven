@@ -10,6 +10,7 @@ import os
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID
@@ -154,6 +155,20 @@ def test_compaction_checkpoint_round_trip(store, remote, tmp_path):
         with other.open(fourth) as view:
             assert view.lookup("a") is None
             assert view.lookup("d") == entry("d")
+
+
+def test_builder_sort_scratch_stays_under_work_directory(store):
+    with patch(
+        "pulp_maven.app.path_index.build.TemporaryDirectory", wraps=TemporaryDirectory
+    ) as temporary:
+        first = store.create(identity(10), [entry("a"), entry("b")])
+        store.update(identity(11), first, [entry("c")], [path_hash("b")])
+    assert temporary.call_count
+    assert all(
+        Path(call.kwargs["dir"]).is_relative_to(store.work_directory)
+        for call in temporary.call_args_list
+    )
+    assert not list(store.work_directory.iterdir())
 
 
 def test_missing_manifest_is_not_cached(store):
