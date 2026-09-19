@@ -8,6 +8,61 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.33.0 (2026-09-18) {: #0.33.0 }
+
+#### Features {: #0.33.0-feature }
+
+- Add opt-in Maven path indexes published synchronously to S3 before repository version completion. Use committed manifest descriptors and a shared pod cache for eligible content requests; fail modify if publication fails. Serve HTML listings inline through the shared indexed artifact response with HTTP cache validators and no separate local page cache.
+  Use the repository label as the only feature switch, inherit S3 configuration from the domain, and fix background view preparation at two threads per content process.
+  [#498](https://github.com/pulp/pulp_maven/issues/498)
+
+#### Bugfixes {: #0.33.0-bugfix }
+
+- Fixed an HTTP 500 (IntegrityError) when the same Maven artifact or metadata file was uploaded concurrently; duplicate uploads are now handled idempotently.
+  [#499](https://github.com/pulp/pulp_maven/issues/499)
+
+#### Improved Documentation {: #0.33.0-doc }
+
+- Document synchronous path-index publication, completed-version descriptors, failure recovery, and terminology.
+  [#498](https://github.com/pulp/pulp_maven/issues/498)
+
+#### Misc {: #0.33.0-misc }
+
+- [#497](https://github.com/pulp/pulp_maven/issues/497), [#2423](https://github.com/pulp/pulp_maven/issues/2423)
+
+---
+
+## 0.32.0 (2026-09-16) {: #0.32.0 }
+
+#### Bugfixes {: #0.32.0-bugfix }
+
+- Store repository Bloom filters in Redis instead of serializing them into pulp labels, avoiding large database writes whenever repository content changes. Grow full filters by 50 percent to reduce rebuild frequency for large repositories.
+
+---
+
+## 0.31.0 (2026-09-16) {: #0.31.0 }
+
+#### Features {: #0.31.0-feature }
+
+- Added ETag and Cache-Control headers to Maven index page responses to enable CDN conditional revalidation.
+  [#488](https://github.com/pulp/pulp_maven/issues/488)
+
+#### Bugfixes {: #0.31.0-bugfix }
+
+- Load a repository version's ContentArtifacts in a single query when generating index pages during finalize_new_version, instead of one scan per affected directory, to fix a large-repository performance regression.
+  [#484](https://github.com/pulp/pulp_maven/issues/484)
+
+---
+
+## 0.30.1 (2026-09-16) {: #0.30.1 }
+
+#### Bugfixes {: #0.30.1-bugfix }
+
+- Load a repository version's ContentArtifacts in a single query when generating index pages during finalize_new_version, instead of one scan per affected directory, to fix a large-repository performance regression.
+  [#484](https://github.com/pulp/pulp_maven/issues/484)
+
+---
+
 ## 0.30.0 (2026-09-15) {: #0.30.0 }
 
 #### Removals {: #0.30.0-removal }
