@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.33.1 (2026-09-21) {: #0.33.1 }
+
+#### Bugfixes {: #0.33.1-bugfix }
+
+- Fixed ingested `maven-metadata.xml` files and their checksums getting a bogus version when the artifactId contains a digit, which defeated deduplication and produced duplicate relative paths.
+  [#503](https://github.com/pulp/pulp_maven/issues/503)
+
+---
+
 ## 0.33.0 (2026-09-18) {: #0.33.0 }
 
 #### Features {: #0.33.0-feature }
