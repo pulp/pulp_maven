@@ -181,6 +181,13 @@ class MavenMetadataSerializer(platform.SingleArtifactContentUploadSerializer):
                 group_id = parent.group_id
                 artifact_id = parent.artifact_id
                 version = parent.version
+            elif parent_path.rsplit("/", 1)[-1] == "maven-metadata.xml":
+                # The parent maven-metadata.xml isn't ingested yet — derive
+                # coordinates from the path structure so a digit-containing
+                # artifactId isn't mistaken for a version (GH #503).
+                group_id, artifact_id, version = (
+                    models.MavenMetadata.metadata_coordinates_from_path(relative_path)
+                )
             else:
                 group_id, artifact_id, version, _ = (
                     models.MavenMetadata.group_artifact_version_filename(relative_path)
