@@ -833,6 +833,12 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                 specific or complete collection of directories regardless of the diff.
         """
 
+        if self.pulp_labels.get("incremental_index_pages") == "true":
+            from pulp_maven.app.directory_pages import generate
+
+            generate(self, new_version, rebuild=affected_paths is not None)
+            return
+
         from pulpcore.plugin.content import Handler
         from pulpcore.plugin.models import ContentArtifact, RemoteArtifact
 
@@ -1114,4 +1120,47 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
             ("modify_mavenrepository", "Can modify content in Maven repository"),
             ("manage_roles_mavenrepository", "Can manage roles on Maven repository"),
             ("repair_mavenrepository", "Can repair Maven repository metadata"),
+        ]
+
+
+class MavenDirectoryState(models.Model):
+    """Derived summary cursor; an incomplete/deleted version forces a rebuild."""
+
+    repository = models.OneToOneField(MavenRepository, on_delete=models.CASCADE, primary_key=True)
+    version_id = models.UUIDField(null=True)
+
+
+class MavenDirectory(models.Model):
+    """Working directory state; old versions retain their immutable HTML artifacts."""
+
+    repository = models.ForeignKey(MavenRepository, on_delete=models.CASCADE)
+    path = models.TextField()
+    path_hash = models.CharField(max_length=64)
+    page_id = models.UUIDField(null=True)
+    page_sha256 = models.CharField(max_length=64, blank=True)
+    dirty = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["repository"],
+                condition=models.Q(dirty=True),
+                name="maven_dirty_directories",
+            )
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["repository", "path_hash"], name="maven_directory_path")
+        ]
+
+
+class MavenDirectoryChild(models.Model):
+    directory = models.ForeignKey(MavenDirectory, on_delete=models.CASCADE, related_name="children")
+    name = models.CharField(max_length=256)
+    content_id = models.UUIDField(null=True)
+    size = models.BigIntegerField(null=True)
+    last_modified = models.DateTimeField(null=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["directory", "name"], name="maven_directory_child")
         ]
