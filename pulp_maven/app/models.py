@@ -58,6 +58,49 @@ class MavenContentMixin:
 
         return group_id, artifact_id, version, filename
 
+    @staticmethod
+    def metadata_coordinates_from_path(relative_path):
+        """
+        Parse (group_id, artifact_id, version) for a ``maven-metadata.xml`` path.
+
+        ``maven-metadata.xml`` is published at two levels: the artifact level
+        (``<group>/<artifactId>/maven-metadata.xml``), which has no version, and the
+        version level (``<group>/<artifactId>/<version>/maven-metadata.xml``), which
+        only exists for SNAPSHOT versions. The directory segment directly above the
+        file is therefore the artifactId unless it is a SNAPSHOT version. Relying on
+        the directory structure — rather than the digit heuristic used for regular
+        artifacts — avoids mis-reading a digit-containing artifactId (e.g. ``pop3``)
+        as a version, which broke deduplication of ingested metadata (GH #503).
+
+        Any trailing checksum extension (``.md5``/``.sha1``/``.sha256``/``.sha512``)
+        is ignored so a checksum sibling resolves to the same coordinates as the
+        ``maven-metadata.xml`` it describes.
+
+        Args:
+            relative_path (str): Relative path of a ``maven-metadata.xml`` file or
+                one of its checksum siblings.
+
+        Returns:
+            Tuple (group_id, artifact_id, version)
+
+        """
+        base_path = relative_path
+        for ext in (".md5", ".sha1", ".sha256", ".sha512"):
+            if base_path.endswith(ext):
+                base_path = base_path[: -len(ext)]
+                break
+
+        sub_path, _ = path.split(base_path)
+        parent_dir, last_segment = path.split(sub_path)
+        if last_segment.endswith("-SNAPSHOT"):
+            group_path, artifact_id = path.split(parent_dir)
+            version = last_segment
+        else:
+            group_path = parent_dir
+            artifact_id = last_segment
+            version = None
+        return group_path.replace("/", "."), artifact_id, version
+
 
 class MavenArtifact(MavenContentMixin, Content):
     """
@@ -169,6 +212,13 @@ class MavenMetadata(MavenContentMixin, Content):
                 group_id = parent.group_id
                 artifact_id = parent.artifact_id
                 version = parent.version
+            elif path.basename(parent_path) == "maven-metadata.xml":
+                # The parent maven-metadata.xml isn't ingested yet — derive
+                # coordinates from the path structure so a digit-containing
+                # artifactId isn't mistaken for a version (GH #503).
+                group_id, artifact_id, version = MavenMetadata.metadata_coordinates_from_path(
+                    relative_path
+                )
             else:
                 group_id, artifact_id, version, _ = MavenMetadata.group_artifact_version_filename(
                     relative_path
