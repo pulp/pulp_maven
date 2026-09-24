@@ -405,7 +405,9 @@ class MavenDistribution(Distribution, AutoAddObjPermsMixin):
 
         if self.repository_id and self.remote_id is None:
             # Check the bloom filter for the repository if configured
-            if not bloom_filter_might_contain(self.repository, path, join(path, "index.html")):
+            if not bloom_filter_might_contain(
+                self.repository, version, path, join(path, "index.html")
+            ):
                 # Cache the 404 response for the bloom filtered path
                 class BloomFiltered(HTTPNotFound):
                     cacheable = True
