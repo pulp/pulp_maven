@@ -1,0 +1,1 @@
+Fixed the repository package catalog building a SQL ``IN`` list of every content id, so a paged package list no longer aggregates the whole repository before applying limit and offset.
