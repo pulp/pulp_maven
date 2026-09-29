@@ -2,8 +2,10 @@
 
 from collections import defaultdict
 
-from django.db.models import CharField, Func, Max, Min, Q, Value
+from django.db.models import CharField, FilteredRelation, Func, Max, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Coalesce
+
+from pulpcore.plugin.models import RepositoryContent
 
 from pulp_maven.app.models import MavenPackage
 from pulp_maven.app.versions import (
@@ -46,11 +48,41 @@ def collapse_maven_builds(queryset):
     )
 
 
+def _in_version_bounds_q(repository_version, prefix=""):
+    """Version-added/removed bounds for rows present in ``repository_version``.
+
+    ``prefix`` is empty for ``RepositoryContent`` and ``in_repo__`` for the
+    filtered membership join. Both catalog paths use this helper.
+    """
+    return Q(**{f"{prefix}version_added__number__lte": repository_version.number}) & (
+        Q(**{f"{prefix}version_removed__isnull": True})
+        | Q(**{f"{prefix}version_removed__number__gt": repository_version.number})
+    )
+
+
+def memberships_in_version(repository_version):
+    """RepositoryContent rows contained in ``repository_version``.
+
+    A subquery against this queryset keeps the content-id list in the database.
+    ``RepositoryVersion.content`` inlines ``content_ids`` as one bound UUID per
+    content unit whenever that array is shorter than 65535.
+    """
+    return RepositoryContent.objects.filter(
+        repository_id=repository_version.repository_id,
+    ).filter(_in_version_bounds_q(repository_version))
+
+
 def maven_packages_in_version(repository_version):
     """MavenPackage content contained in ``repository_version``."""
     if repository_version is None:
         return MavenPackage.objects.none()
-    return MavenPackage.objects.filter(pk__in=repository_version.content)
+    content_ids = (
+        memberships_in_version(repository_version)
+        .filter(content__pulp_type=MavenPackage.get_pulp_type())
+        .order_by()
+        .values("content_id")
+    )
+    return MavenPackage.objects.filter(pk__in=content_ids)
 
 
 def apply_package_prefix_filters(queryset, group_id_prefix=None, artifact_id_prefix=None):
@@ -84,45 +116,91 @@ def apply_package_search_filter(queryset, search=None):
     return queryset.filter(q)
 
 
-def membership_in_version_q(repository, repository_version):
-    """Q-object matching RepositoryContent rows present in ``repository_version``."""
-    return Q(
-        version_memberships__repository=repository,
-        version_memberships__version_added__number__lte=repository_version.number,
-    ) & (
-        Q(version_memberships__version_removed__isnull=True)
-        | Q(version_memberships__version_removed__number__gt=repository_version.number)
-    )
+def _membership_time(repository_version, newest=True):
+    """Scalar membership time for one content row in this version.
 
-
-def last_updated_annotation(repository, repository_version):
-    """Newest repository-membership time among all MavenPackage units for a GA.
-
-    Uses ``RepositoryContent.pulp_created`` (any rebuild), falling back to the
-    content unit's ``pulp_created``.
+    Valid on an ungrouped queryset (``created_at``). Do not place this inside
+    ``Max()``: Postgres rejects a correlated subquery that references a column
+    absent from ``GROUP BY``.
     """
-    return Coalesce(
-        Max(
-            "version_memberships__pulp_created",
-            filter=membership_in_version_q(repository, repository_version),
-        ),
-        Max("pulp_created"),
+    direction = "-pulp_created" if newest else "pulp_created"
+    return Subquery(
+        memberships_in_version(repository_version)
+        .filter(content_id=OuterRef("pk"))
+        .order_by(direction)
+        .values("pulp_created")[:1]
     )
 
 
-def distinct_ga_qs(content_qs, repository, repository_version, ordering=None):
-    """One row per distinct ``(group_id, artifact_id)``, ordered for stable pagination."""
+def annotate_grouped_last_updated(queryset, repository_version):
+    """One ``last_updated`` per ``(group_id, artifact_id)``.
+
+    The join is limited to this repository. Version bounds match
+    ``memberships_in_version``. Falls back to the content unit's ``pulp_created``.
+    """
+    if repository_version is None:
+        return queryset.values("group_id", "artifact_id").annotate(last_updated=Max("pulp_created"))
+    return (
+        queryset.annotate(
+            in_repo=FilteredRelation(
+                "version_memberships",
+                condition=Q(version_memberships__repository_id=repository_version.repository_id),
+            )
+        )
+        .values("group_id", "artifact_id")
+        .annotate(
+            last_updated=Coalesce(
+                Max(
+                    "in_repo__pulp_created",
+                    filter=_in_version_bounds_q(repository_version, prefix="in_repo__"),
+                ),
+                Max("pulp_created"),
+            )
+        )
+    )
+
+
+def _orders_by_last_updated(ordering):
+    return any(term.lstrip("-") == "last_updated" for term in ordering)
+
+
+def distinct_ga_qs(content_qs, repository_version, ordering=None):
+    """One row per distinct ``(group_id, artifact_id)``, ordered for stable pagination.
+
+    ``last_updated`` is aggregated here only when it is a sort key. The default
+    ``group_id, artifact_id`` order would otherwise compute that aggregate for
+    every package before ``LIMIT``/``OFFSET`` can apply. The page assembler fills
+    ``last_updated`` for the returned rows.
+    """
     if ordering is None:
         ordering = DEFAULT_PACKAGE_INDEX_ORDERING
-    qs = content_qs.order_by().values("group_id", "artifact_id")
-    if repository_version is None:
-        qs = qs.annotate(last_updated=Max("pulp_created"))
+    qs = content_qs.order_by()
+    if _orders_by_last_updated(ordering):
+        qs = annotate_grouped_last_updated(qs, repository_version)
     else:
-        qs = qs.annotate(last_updated=last_updated_annotation(repository, repository_version))
+        qs = qs.values("group_id", "artifact_id").distinct()
     return qs.order_by(*ordering)
 
 
-def assemble_package_index(content_qs, ga_rows, repository, repository_version):
+def _ga_pair_q(ga_rows):
+    pair_q = Q()
+    for row in ga_rows:
+        pair_q |= Q(group_id=row["group_id"], artifact_id=row["artifact_id"])
+    return pair_q
+
+
+def _last_updated_by_ga(content_qs, ga_rows, repository_version):
+    """Newest membership time for each GA on this page."""
+    # A long OR list stops the planner using the (group_id, artifact_id) index.
+    # Past a couple hundred rows, one grouped aggregate over the version is cheaper.
+    scoped = content_qs
+    if len(ga_rows) <= 200:
+        scoped = content_qs.filter(_ga_pair_q(ga_rows))
+    annotated = annotate_grouped_last_updated(scoped.order_by(), repository_version)
+    return {(row["group_id"], row["artifact_id"]): row["last_updated"] for row in annotated}
+
+
+def assemble_package_index(content_qs, ga_rows, repository_version):
     """Build package-index dicts for ``ga_rows``.
 
     Each row is one ``(group_id, artifact_id)``. ``versions`` are distinct base
@@ -131,46 +209,31 @@ def assemble_package_index(content_qs, ga_rows, repository, repository_version):
     repository-membership time (``RepositoryContent.pulp_created``), falling
     back to the content unit's ``pulp_created``. ``last_updated`` is the newest
     membership time among all units for the GA (any rebuild), taken from
-    ``ga_rows`` when annotated.
+    ``ga_rows`` when the page query already annotated it.
     """
     if not ga_rows or repository_version is None:
         return []
 
-    pair_q = Q()
-    for row in ga_rows:
-        pair_q |= Q(group_id=row["group_id"], artifact_id=row["artifact_id"])
+    pair_q = _ga_pair_q(ga_rows)
+    if "last_updated" in ga_rows[0]:
+        last_updated_by_ga = None
+    else:
+        last_updated_by_ga = _last_updated_by_ga(content_qs, ga_rows, repository_version)
 
-    in_this_version = membership_in_version_q(repository, repository_version)
-
-    newest_units = list(
+    # values() keeps dependencies/licenses JSON off this DISTINCT ON sort.
+    newest = list(
         content_qs.filter(pair_q)
-        .prefetch_related(None)
         .annotate(_base_version=base_version_annotation())
         .order_by("group_id", "artifact_id", "_base_version", "-pulp_created")
         .distinct("group_id", "artifact_id", "_base_version")
+        .values("pk", "group_id", "artifact_id", "version", "_base_version", "pulp_created")
     )
-    newest = [
-        {
-            "pk": unit.pk,
-            "group_id": unit.group_id,
-            "artifact_id": unit.artifact_id,
-            "version": unit.version,
-            "_base_version": unit._base_version,
-            "pulp_created": unit.pulp_created,
-        }
-        for unit in newest_units
-    ]
 
     memberships = {}
     if newest:
         memberships = dict(
             MavenPackage.objects.filter(pk__in=[row["pk"] for row in newest])
-            .annotate(
-                membership_created=Min(
-                    "version_memberships__pulp_created",
-                    filter=in_this_version,
-                )
-            )
+            .annotate(membership_created=_membership_time(repository_version, newest=False))
             .values_list("pk", "membership_created")
         )
 
@@ -195,11 +258,15 @@ def assemble_package_index(content_qs, ga_rows, repository, repository_version):
             }
             for item in rels
         ]
+        if last_updated_by_ga is None:
+            last_updated = row.get("last_updated")
+        else:
+            last_updated = last_updated_by_ga.get(ga)
         result.append(
             {
                 "group_id": row["group_id"],
                 "artifact_id": row["artifact_id"],
-                "last_updated": row.get("last_updated"),
+                "last_updated": last_updated,
                 "versions": versions,
                 "latest_releases": latest_releases,
             }
