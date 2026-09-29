@@ -541,15 +541,88 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
             return queryset
         return super().filter_queryset(queryset)
 
+    def _repository_version_from_href(self, href):
+        """Resolve a repository-version href or PRN without loading ``content_ids``.
+
+        ``NamedModelViewSet.get_resource`` selects every column, including the
+        version's content-id array.
+        """
+        from urllib.parse import urlparse
+
+        from django.core.exceptions import FieldError
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from django.urls import Resolver404, resolve
+
+        from pulpcore.plugin.util import resolve_prn
+
+        if href.startswith("prn:"):
+            model, pk = resolve_prn(href)
+            if model is not RepositoryVersion:
+                raise ValidationError({"repository_version": "Must be a repository version."})
+            lookup = {"pk": pk}
+        else:
+            try:
+                found_kwargs = resolve(urlparse(href).path).kwargs
+            except Resolver404:
+                raise ValidationError({"repository_version": f"URI not valid: {href}"}) from None
+            lookup = {}
+            for key, value in found_kwargs.items():
+                if key.endswith("_pk"):
+                    lookup[f"{key[:-3]}__pk"] = value
+                elif key == "pulp_domain":
+                    # The domain lives on the repository. RepositoryVersion has no
+                    # pulp_domain field, so a domain-prefixed href must not filter on it.
+                    if hasattr(RepositoryVersion, "pulp_domain"):
+                        lookup["pulp_domain__name"] = value
+                elif key in ("api_root", "version"):
+                    continue
+                else:
+                    lookup[key] = value
+
+        try:
+            return RepositoryVersion.objects.defer("content_ids").get(**lookup)
+        except RepositoryVersion.DoesNotExist:
+            raise ValidationError({"repository_version": f"URI {href} not found."}) from None
+        except (RepositoryVersion.MultipleObjectsReturned, DjangoValidationError, FieldError):
+            raise ValidationError(
+                {"repository_version": f"URI {href} is not a valid repository version."}
+            ) from None
+
     def _requested_repository_version(self, repository):
         """Resolve optional `repository_version` href/PRN, else latest complete version."""
         href = self.request.query_params.get("repository_version")
         if not href:
-            return repository.latest_version()
-        repo_version = self.get_resource(href, RepositoryVersion)
+            try:
+                # content_ids is a UUID per content unit. The catalog never reads it.
+                return repository.versions.complete().defer("content_ids").latest()
+            except RepositoryVersion.DoesNotExist:
+                return None
+        repo_version = self._repository_version_from_href(href)
         if repo_version.repository_id != repository.pk:
             raise ValidationError({"repository_version": "Must be a version of this repository."})
         return repo_version
+
+    def _paginate_package_index(self, names_qs, content_qs):
+        """Paginate distinct packages.
+
+        The count is ``COUNT(DISTINCT group_id, artifact_id)`` on the filtered
+        packages. Counting the page queryset would rerun a ``last_updated``
+        aggregate when that field is the sort key.
+        """
+        paginator = self.paginator
+        if paginator is None:
+            return None
+        count_qs = content_qs.order_by().values("group_id", "artifact_id").distinct()
+        original_get_count = paginator.get_count
+
+        def get_count(_queryset):
+            return count_qs.count()
+
+        paginator.get_count = get_count
+        try:
+            return paginator.paginate_queryset(names_qs, self.request, view=self)
+        finally:
+            paginator.get_count = original_get_count
 
     @extend_schema(
         summary="List packages",
@@ -654,12 +727,11 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
             ordering = normalize_package_index_ordering(request.query_params.getlist("ordering"))
         except ValueError as exc:
             raise ValidationError({"ordering": str(exc)}) from exc
-        names_qs = distinct_ga_qs(content_qs, repository, repo_version, ordering=ordering)
-        page = self.paginate_queryset(names_qs)
+        names_qs = distinct_ga_qs(content_qs, repo_version, ordering=ordering)
+        page = self._paginate_package_index(names_qs, content_qs)
         rows = assemble_package_index(
             content_qs,
             page if page is not None else list(names_qs),
-            repository,
             repo_version,
         )
         serializer = self.get_serializer(rows, many=True)
