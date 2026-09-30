@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.33.2 (2026-09-29) {: #0.33.2 }
+
+#### Bugfixes {: #0.33.2-bugfix }
+
+- Fixed the repository package catalog building a SQL ``IN`` list of every content id, so a paged package list no longer aggregates the whole repository before applying limit and offset.
+  [#510](https://github.com/pulp/pulp_maven/issues/510)
+
+---
+
 ## 0.33.1 (2026-09-21) {: #0.33.1 }
 
 #### Bugfixes {: #0.33.1-bugfix }
