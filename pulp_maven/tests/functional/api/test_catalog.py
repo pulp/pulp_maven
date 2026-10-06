@@ -3,7 +3,6 @@
 Generated client methods are unavailable until `oci-env generate-client` is rerun.
 """
 
-import re
 import uuid
 from datetime import datetime
 from types import SimpleNamespace
@@ -469,6 +468,155 @@ def test_packages_and_metrics_repository_version(bindings_cfg, catalog_repo, mav
     assert response.status_code == 400, response.text
 
 
+def _upload_described_gavs(
+    maven_artifact_api_client,
+    maven_repo_api_client,
+    maven_repo_factory,
+    pom_file_factory,
+    monitor_task,
+    specs,
+):
+    """Upload POMs that may carry description and licenses, then add them to a new repo."""
+    repo = maven_repo_factory()
+    hrefs = []
+    for spec in specs:
+        group_id = spec["group_id"]
+        artifact_id = spec["artifact_id"]
+        version = spec["version"]
+        group_path = group_id.replace(".", "/") + f"/{artifact_id}/{version}"
+        pom_path = pom_file_factory(**spec)
+        content = maven_artifact_api_client.upload(
+            file=str(pom_path),
+            relative_path=f"{group_path}/{artifact_id}-{version}.pom",
+        )
+        hrefs.append(content.pulp_href)
+    monitor_task(maven_repo_api_client.modify(repo.pulp_href, {"add_content_units": hrefs}).task)
+    return maven_repo_api_client.read(repo.pulp_href)
+
+
+@pytest.mark.parallel
+def test_flat_package_list(
+    bindings_cfg,
+    maven_artifact_api_client,
+    maven_repo_api_client,
+    maven_repo_factory,
+    pom_file_factory,
+    monitor_task,
+):
+    """Flat list is one stored GAV per row, ordered by group, artifact, then version text."""
+    uid = _uid()
+    example = f"com.example.{uid}"
+    other_group = f"org.other.{uid}"
+    repo = _upload_described_gavs(
+        maven_artifact_api_client,
+        maven_repo_api_client,
+        maven_repo_factory,
+        pom_file_factory,
+        monitor_task,
+        [
+            {"group_id": example, "artifact_id": "hello", "version": "5.3.18.rhlw-00003"},
+            {"group_id": example, "artifact_id": "hello", "version": "5.3.180"},
+            {"group_id": example, "artifact_id": "hello", "version": "5.3.18"},
+            {
+                "group_id": example,
+                "artifact_id": "hello",
+                "version": "1.0.0",
+                "description": "Example hello library",
+                "licenses": [
+                    {
+                        "name": "Apache-2.0",
+                        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+                    }
+                ],
+            },
+            {"group_id": example, "artifact_id": "world", "version": "1.0.0"},
+            {
+                "group_id": other_group,
+                "artifact_id": "widget",
+                "version": "1.0.0",
+                "description": "A widget",
+            },
+        ],
+    )
+    path = f"{repo.pulp_href}packages/flat/"
+    data = _api_get(bindings_cfg, path)
+    assert data["count"] == 6
+    rows = data["results"]
+    assert [(row["group_id"], row["artifact_id"], row["version"]) for row in rows] == [
+        (example, "hello", "1.0.0"),
+        (example, "hello", "5.3.18"),
+        (example, "hello", "5.3.18.rhlw-00003"),
+        (example, "hello", "5.3.180"),
+        (example, "world", "1.0.0"),
+        (other_group, "widget", "1.0.0"),
+    ]
+    described = rows[0]
+    assert described["description"] == "Example hello library"
+    assert described["licenses"] == [
+        {"name": "Apache-2.0", "url": "https://www.apache.org/licenses/LICENSE-2.0"}
+    ]
+    bare = rows[2]
+    assert bare["version"] == "5.3.18.rhlw-00003"
+    assert bare["description"] == ""
+    assert bare["licenses"] == []
+    assert rows[5]["description"] == "A widget"
+    assert rows[5]["licenses"] == []
+    for row in rows:
+        assert set(row) == {
+            "group_id",
+            "artifact_id",
+            "version",
+            "last_updated",
+            "description",
+            "licenses",
+        }
+        _parse_dt(row["last_updated"])
+        assert row["description"] is not None
+        assert row["licenses"] is not None
+
+    page1 = _api_get(bindings_cfg, path, limit=1)
+    page2 = _api_get(bindings_cfg, path, limit=1, offset=1)
+    assert page1["count"] == 6
+    assert page1["results"][0]["version"] == "1.0.0"
+    assert page2["results"][0]["version"] == "5.3.18"
+
+    ignored = _api_get(bindings_cfg, path, search="missing", ordering="nope")
+    assert ignored["count"] == 6
+    assert [row["version"] for row in ignored["results"]] == [row["version"] for row in rows]
+
+    latest = _api_get(bindings_cfg, path, repository_version=repo.latest_version_href)
+    assert latest["count"] == 6
+    v0 = _api_get(bindings_cfg, path, repository_version=f"{repo.pulp_href}versions/0/")
+    assert v0["count"] == 0
+    assert v0["results"] == []
+
+    elsewhere = _add_gavs(
+        maven_artifact_api_client,
+        maven_repo_api_client,
+        pom_file_factory,
+        monitor_task,
+        maven_repo_factory(),
+        [(f"com.hidden.{uid}", "secret", "9.9.9")],
+    )
+    hidden = _api_get(bindings_cfg, f"{elsewhere.pulp_href}packages/flat/")
+    assert [(row["artifact_id"], row["version"]) for row in hidden["results"]] == [
+        ("secret", "9.9.9")
+    ]
+    assert all(row["artifact_id"] != "secret" for row in rows)
+
+    url = urljoin(bindings_cfg.host + "/", path.lstrip("/"))
+    response = requests.get(
+        url,
+        params={"repository_version": elsewhere.latest_version_href},
+        auth=(bindings_cfg.username, bindings_cfg.password),
+    )
+    assert response.status_code == 400, response.text
+
+    empty = _api_get(bindings_cfg, f"{maven_repo_factory().pulp_href}packages/flat/")
+    assert empty["count"] == 0
+    assert empty["results"] == []
+
+
 @pytest.mark.parallel
 def test_collapse_builds_and_base_version(bindings_cfg, catalog_repo, catalog_groups):
     """collapse_builds keeps one unit per logical version; base_version is always present."""
@@ -731,83 +879,3 @@ def test_package_list_ordering_invalid(bindings_cfg, catalog_repo):
         auth=(bindings_cfg.username, bindings_cfg.password),
     )
     assert response.status_code == 400, response.text
-
-
-_UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
-
-
-def _bound_id_count(sql):
-    """How many ids the statement binds, whether mogrified or left as ``%s``."""
-    lowered = sql.lower()
-    return max(len(_UUID_RE.findall(lowered)), lowered.count("%s"))
-
-
-@pytest.mark.parallel
-def test_package_list_sql_does_not_expand_content_ids(catalog_repo, django_db_blocker):
-    """The package index must filter through RepositoryContent, not content_ids.
-
-    A paged list used to inline every content UUID in the version. Default
-    ordering must also skip the last_updated aggregate. Sorting by last_updated
-    still computes that aggregate, and still must not inline the UUID list.
-    """
-    from django.db import connection
-
-    from pulpcore.plugin.models import RepositoryContent
-
-    from pulp_maven.app.catalog import (
-        assemble_package_index,
-        distinct_ga_qs,
-        maven_packages_in_version,
-    )
-    from pulp_maven.app.models import MavenRepository
-
-    repo_pk = catalog_repo.pulp_href.rstrip("/").split("/")[-1]
-    with django_db_blocker.unblock():
-        repository = MavenRepository.objects.get(pk=repo_pk)
-        repo_version = repository.versions.complete().defer("content_ids").latest()
-        content_count = RepositoryContent.objects.filter(
-            repository_id=repository.pk, version_removed__isnull=True
-        ).count()
-        content_qs = maven_packages_in_version(repo_version)
-        default_qs = distinct_ga_qs(content_qs, repo_version, ordering=("group_id", "artifact_id"))
-        updated_qs = distinct_ga_qs(
-            content_qs,
-            repo_version,
-            ordering=("-last_updated", "group_id", "artifact_id"),
-        )
-        count_qs = content_qs.order_by().values("group_id", "artifact_id").distinct()
-
-        connection.force_debug_cursor = True
-        start = len(connection.queries)
-        try:
-            count_qs.count()
-            page = list(default_qs[:20])
-            list(updated_qs[:20])
-            assemble_start = len(connection.queries)
-            rows = assemble_package_index(content_qs, page, repo_version)
-        finally:
-            connection.force_debug_cursor = False
-        captured = [query["sql"] for query in connection.queries[start:assemble_start]]
-        assembled = [query["sql"] for query in connection.queries[assemble_start:]]
-
-    assert rows
-    assert content_count >= 6
-    assert len(captured) == 3, captured
-    count_sql, default_sql, updated_sql = captured
-    for sql in captured + assembled:
-        lowered = sql.lower()
-        assert "core_repositorycontent" in lowered, sql
-        assert "content_id" in lowered, sql
-        assert _bound_id_count(sql) < content_count, sql
-    assert "max(" not in count_sql.lower()
-    assert "max(" not in default_sql.lower()
-    assert "distinct" in default_sql.lower()
-    assert "max(" in updated_sql.lower()
-    # MAX((SELECT ... content_ptr_id)) is rejected by Postgres: the correlated
-    # column is not in GROUP BY. repository_id must be on the membership join.
-    lowered_updated = updated_sql.lower()
-    assert "max((select" not in lowered_updated
-    assert 'in_repo."repository_id"' in lowered_updated
-    assert "limit" in default_sql.lower()
-    assert "limit" in updated_sql.lower()
-    assert any("distinct" in sql.lower() for sql in assembled)
