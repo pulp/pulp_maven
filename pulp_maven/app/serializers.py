@@ -367,6 +367,43 @@ class MavenRepositoryPackageSerializer(serializers.Serializer):
     )
 
 
+class MavenPackageLicenseSerializer(serializers.Serializer):
+    """One license entry on the flat package list."""
+
+    name = serializers.CharField(
+        allow_blank=True,
+        help_text=_("License name from the POM. Empty when the POM omitted it."),
+    )
+    url = serializers.CharField(
+        allow_blank=True,
+        help_text=_("License URL from the POM. Empty when the POM omitted it."),
+    )
+
+
+class MavenRepositoryFlatPackageSerializer(serializers.Serializer):
+    """One MavenPackage in a repository version. ``version`` is stored unchanged."""
+
+    group_id = serializers.CharField(help_text=_("Maven groupId."))
+    artifact_id = serializers.CharField(help_text=_("Maven artifactId."))
+    version = serializers.CharField(
+        help_text=_("Version stored on the MavenPackage, including any rebuild suffix."),
+    )
+    last_updated = serializers.DateTimeField(
+        help_text=_(
+            "When this GAV entered the repository version: RepositoryContent.pulp_created, "
+            "falling back to the content unit's pulp_created."
+        ),
+    )
+    description = serializers.CharField(
+        allow_blank=True,
+        help_text=_("Description from the POM. Empty when the POM has none."),
+    )
+    licenses = MavenPackageLicenseSerializer(
+        many=True,
+        help_text=_("Licenses from the POM. Empty when the POM has none."),
+    )
+
+
 class MavenRepositoryMetricsSerializer(serializers.Serializer):
     """Distinct package / version / build counts for a repository version."""
 

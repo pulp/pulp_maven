@@ -2,7 +2,7 @@
 
 Pulp CLI commands for these endpoints are generated from the OpenAPI spec in a separate package; until that is updated, use HTTP.
 
-The content list (`/pulp/api/v3/content/maven/package/`) returns **one row per POM-backed GAV**. For catalog UIs and automation that need **one row per (group_id, artifact_id)**, plus repository metrics, use the repository package index.
+The content list (`/pulp/api/v3/content/maven/package/`) returns **one row per POM-backed GAV**. For catalog UIs and automation that need **one row per (group_id, artifact_id)**, plus repository metrics, use the repository package index. For one row per stored GAV with no search or prefix filters, use the [flat package list](#flat-package-list).
 
 Do not use `content/maven/artifact/` for catalog reads: that list is one row per file (jar, pom, checksums).
 
@@ -90,6 +90,46 @@ http GET "${BASE_ADDR}/pulp/api/v3/repositories/maven/maven/${REPO_PK}/packages/
 ```
 
 `group_id__istartswith` and `artifact_id__istartswith` are case-insensitive (`ILIKE`). Prefix search belongs on this index, not on the flat content list.
+
+## Flat package list
+
+```bash
+http GET "${BASE_ADDR}/pulp/api/v3/repositories/maven/maven/${REPO_PK}/packages/flat/?limit=10"
+```
+
+One row per `MavenPackage`. `count` is the number of GAVs, not distinct `(group_id, artifact_id)`. `version` is the stored string, so `5.3.18` and `5.3.18.rhlw-00003` are separate rows. Results are ordered by `group_id`, `artifact_id`, `version` in byte order (`COLLATE "C"`): `1.0.0`, then `5.3.18`, then `5.3.18.rhlw-00003`, then `5.3.180`.
+
+`description` is `""` when the POM has no description. `licenses` is `[]` when the POM has no licenses. `name` and `url` inside a license are strings. `last_updated` is when that GAV entered the repository version.
+
+Optional `repository_version` selects a snapshot, the same way as the grouped list. There is no `search`, prefix, or `ordering` parameter.
+
+```json
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "group_id": "com.example",
+      "artifact_id": "hello",
+      "version": "5.3.18.rhlw-00003",
+      "last_updated": "2026-08-11T08:00:00.000000Z",
+      "description": "Example hello library",
+      "licenses": [
+        {"name": "Apache-2.0", "url": "https://www.apache.org/licenses/LICENSE-2.0"}
+      ]
+    },
+    {
+      "group_id": "com.example",
+      "artifact_id": "world",
+      "version": "1.0.0",
+      "last_updated": "2026-08-10T10:00:00.000000Z",
+      "description": "",
+      "licenses": []
+    }
+  ]
+}
+```
 
 ## Repository metrics
 

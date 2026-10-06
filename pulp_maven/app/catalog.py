@@ -3,7 +3,7 @@
 from collections import defaultdict
 
 from django.db.models import CharField, FilteredRelation, Func, Max, OuterRef, Q, Subquery, Value
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, Collate
 
 from pulpcore.plugin.models import RepositoryContent
 
@@ -83,6 +83,19 @@ def maven_packages_in_version(repository_version):
         .values("content_id")
     )
     return MavenPackage.objects.filter(pk__in=content_ids)
+
+
+def order_flat_packages(queryset):
+    """Order a flat package list by byte value, not the database collation.
+
+    UTF-8 collations treat punctuation as secondary, so ``5.3.180`` sorts before
+    ``5.3.18.rhlw-00003``. ``COLLATE "C"`` compares bytes: ``.`` before ``0``.
+    """
+    return queryset.order_by(
+        Collate("group_id", "C"),
+        Collate("artifact_id", "C"),
+        Collate("version", "C"),
+    )
 
 
 def apply_package_prefix_filters(queryset, group_id_prefix=None, artifact_id_prefix=None):
@@ -198,6 +211,47 @@ def _last_updated_by_ga(content_qs, ga_rows, repository_version):
         scoped = content_qs.filter(_ga_pair_q(ga_rows))
     annotated = annotate_grouped_last_updated(scoped.order_by(), repository_version)
     return {(row["group_id"], row["artifact_id"]): row["last_updated"] for row in annotated}
+
+
+def _license_rows(licenses):
+    """License objects for the flat list. Missing data is an empty list of strings."""
+    if not isinstance(licenses, list):
+        return []
+    rows = []
+    for item in licenses:
+        if not isinstance(item, dict):
+            continue
+        rows.append({"name": item.get("name") or "", "url": item.get("url") or ""})
+    return rows
+
+
+def assemble_flat_packages(units, repository_version):
+    """One row per MavenPackage. ``version`` is the stored string.
+
+    ``last_updated`` is when that unit entered this repository version
+    (earliest ``RepositoryContent.pulp_created`` still in the version), falling
+    back to the content unit's ``pulp_created``. ``description`` is ``""`` when
+    unset. ``licenses`` is ``[]`` when unset.
+    """
+    if not units or repository_version is None:
+        return []
+
+    memberships = dict(
+        MavenPackage.objects.filter(pk__in=[unit.pk for unit in units])
+        .annotate(membership_created=_membership_time(repository_version, newest=False))
+        .values_list("pk", "membership_created")
+    )
+    return [
+        {
+            "group_id": unit.group_id,
+            "artifact_id": unit.artifact_id,
+            "version": unit.version,
+            "last_updated": memberships.get(unit.pk) or unit.pulp_created,
+            "description": unit.description or "",
+            "licenses": _license_rows(unit.licenses),
+        }
+        for unit in units
+    ]
 
 
 def assemble_package_index(content_qs, ga_rows, repository_version):

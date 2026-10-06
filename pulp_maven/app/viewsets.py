@@ -34,11 +34,13 @@ from pulpcore.plugin.viewsets import (
 from pulp_maven.app.catalog import (
     apply_package_prefix_filters,
     apply_package_search_filter,
+    assemble_flat_packages,
     assemble_package_index,
     base_version_annotation,
     collapse_maven_builds,
     distinct_ga_qs,
     maven_packages_in_version,
+    order_flat_packages,
     repository_metrics,
 )
 from pulp_maven.app.models import (
@@ -59,6 +61,7 @@ from pulp_maven.app.serializers import (
     MavenMetadataUploadSerializer,
     MavenPackageSerializer,
     MavenRemoteSerializer,
+    MavenRepositoryFlatPackageSerializer,
     MavenRepositoryMetricsSerializer,
     MavenRepositoryPackageSerializer,
     MavenRepositorySerializer,
@@ -449,7 +452,7 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
                 ],
             },
             {
-                "action": ["retrieve", "packages", "metrics", "path_index_status"],
+                "action": ["retrieve", "packages", "packages_flat", "metrics", "path_index_status"],
                 "principal": "authenticated",
                 "effect": "allow",
                 "condition": "has_model_or_domain_or_obj_perms:maven.view_mavenrepository",
@@ -537,9 +540,20 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
 
     def filter_queryset(self, queryset):
         """Do not apply the repository FilterSet to package-index query params."""
-        if getattr(self, "action", None) in ("packages", "metrics"):
+        if getattr(self, "action", None) in ("packages", "packages_flat", "metrics"):
             return queryset
         return super().filter_queryset(queryset)
+
+    @property
+    def filter_backends(self):
+        """Repository filters apply to the repository, not the flat package list.
+
+        ``packages_flat`` is a detail GET that returns a list. Spectacular treats
+        that as a list operation and would otherwise document repository filters.
+        """
+        if getattr(self, "action", None) == "packages_flat":
+            return []
+        return super().filter_backends
 
     def _repository_version_from_href(self, href):
         """Resolve a repository-version href or PRN without loading ``content_ids``.
@@ -732,6 +746,62 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
         rows = assemble_package_index(
             content_qs,
             page if page is not None else list(names_qs),
+            repo_version,
+        )
+        serializer = self.get_serializer(rows, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @extend_schema(
+        summary="List packages (flat)",
+        description=(
+            "Return one MavenPackage row per stored GAV in a repository version "
+            "(latest complete version if repository_version is omitted). "
+            "version is the stored string, so rebuilds are separate rows. "
+            "Pagination count is the number of GAVs. "
+            "description is an empty string when the POM has none. "
+            "licenses is an empty list when the POM has none. "
+            "Ordered by group_id, artifact_id, version in byte order."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="repository_version",
+                type=OpenApiTypes.URI,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "HREF or PRN of a version of this repository. "
+                    "Defaults to the latest complete version."
+                ),
+            ),
+        ],
+        responses={
+            200: inline_serializer(
+                name="PaginatedMavenRepositoryFlatPackageList",
+                fields={
+                    "count": IntegerField(),
+                    "next": URLField(allow_null=True),
+                    "previous": URLField(allow_null=True),
+                    "results": MavenRepositoryFlatPackageSerializer(many=True),
+                },
+            )
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="packages/flat",
+        serializer_class=MavenRepositoryFlatPackageSerializer,
+    )
+    def packages_flat(self, request, pk, **kwargs):
+        """List MavenPackage rows in a repository version."""
+        repository = self.get_object()
+        repo_version = self._requested_repository_version(repository)
+        content_qs = order_flat_packages(maven_packages_in_version(repo_version))
+        page = self.paginate_queryset(content_qs)
+        rows = assemble_flat_packages(
+            page if page is not None else list(content_qs),
             repo_version,
         )
         serializer = self.get_serializer(rows, many=True)
