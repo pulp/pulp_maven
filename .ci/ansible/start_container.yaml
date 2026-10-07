@@ -134,17 +134,6 @@
   hosts: "pulp"
   gather_facts: false
   tasks:
-    - name: "Create directory for pulp-smash config"
-      ansible.builtin.file:
-        path: "/var/lib/pulp/.config/pulp_smash/"
-        state: "directory"
-        mode: "0755"
-
-    - name: "Configure pulp-smash"
-      ansible.builtin.copy:
-        src: "smash-config.json"
-        dest: "/var/lib/pulp/.config/pulp_smash/settings.json"
-
     - name: "Set pulp admin password"
       ansible.builtin.command:
         cmd: "pulpcore-manager reset-admin-password --password password"
