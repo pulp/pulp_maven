@@ -109,6 +109,17 @@ def test_finalize_does_not_scan_per_directory(
         f"set-valued scan.\n" + "\n".join(q["sql"][:160] for q in like_scans[:8])
     )
 
+    deferred_type_queries = [
+        q
+        for q in captured
+        if '"core_content"."pulp_type"' in q["sql"].lower()
+        and 'where "maven_mavenindexpage"."content_ptr_id" =' in q["sql"].lower()
+    ]
+    assert not deferred_type_queries, (
+        "_generate_index_pages deferred pulp_type while loading existing index pages, "
+        f"causing {len(deferred_type_queries)} extra queries (one per page)."
+    )
+
 
 @pytest.mark.parallel
 def test_index_pages_generated_for_nested_directories(

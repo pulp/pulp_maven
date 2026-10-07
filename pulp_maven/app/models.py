@@ -1,11 +1,13 @@
 import re
 import threading
+from collections import defaultdict, namedtuple
 from gettext import gettext as _
 from logging import getLogger
 from os import path
 
 from django.contrib.postgres.indexes import GinIndex
 from django.db import IntegrityError, models, transaction
+from django.db.models import Q
 from django_lifecycle import AFTER_CREATE, AFTER_DELETE, AFTER_UPDATE, hook
 
 from pulpcore.plugin.models import (
@@ -834,57 +836,78 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
         """
 
         from pulpcore.plugin.content import Handler
-        from pulpcore.plugin.models import ContentArtifact, RemoteArtifact
+        from pulpcore.plugin.models import (
+            Artifact,
+            ContentArtifact,
+            RemoteArtifact,
+            RepositoryContent,
+        )
 
-        from pulp_maven.app.tasks import _save_artifacts_batch
+        from pulp_maven.app.tasks import _parse_index_pages, _save_artifacts_batch
+
+        def file_or_directory_name(directory_path, relative_path):
+            result = re.match(r"({})([^\/]*)(\/*)".format(re.escape(directory_path)), relative_path)
+            return "{}{}".format(result.groups()[1], result.groups()[2])
+
+        def ancestor_directory_paths(directory_path):
+            yield ""
+            parts = directory_path.rstrip("/").split("/") if directory_path else []
+            for index in range(1, len(parts) + 1):
+                yield "/".join(parts[:index]) + "/"
 
         # Track whether the caller passed an explicit path set (the repair case).
         # The two strategies below are chosen based on this flag.
         bulk_mode = affected_paths is not None
+        MARTIFACT_TYPE = MavenArtifact.get_pulp_type()
+        METADATA_TYPE = MavenMetadata.get_pulp_type()
+
+        AddPath = namedtuple("AddPath", ["relative_path", "artifact_size"])
+        RemovePath = namedtuple("RemovePath", ["relative_path", "artifact_size"])
 
         if affected_paths is None:
             # Compute all ancestor directory paths for added/removed non-index content.
-            added_pks = set(
-                MavenArtifact.objects.filter(pk__in=new_version.added()).values_list(
-                    "pk", flat=True
-                )
-            ) | set(
-                MavenMetadata.objects.filter(pk__in=new_version.added()).values_list(
-                    "pk", flat=True
-                )
-            )
-            removed_pks = set(
-                MavenArtifact.objects.filter(pk__in=new_version.removed()).values_list(
-                    "pk", flat=True
-                )
-            ) | set(
-                MavenMetadata.objects.filter(pk__in=new_version.removed()).values_list(
-                    "pk", flat=True
-                )
-            )
+            pulp_type_q = Q(content__pulp_type__in=[MARTIFACT_TYPE, METADATA_TYPE])
+            added_pks = RepositoryContent.objects.filter(
+                pulp_type_q,
+                repository=self,
+                version_added=new_version,
+            ).values_list("content_id", flat=True)
+            removed_pks = RepositoryContent.objects.filter(
+                pulp_type_q,
+                repository=self,
+                version_removed=new_version,
+            ).values_list("content_id", flat=True)
 
             all_content_pks = added_pks | removed_pks
-            if not all_content_pks:
+            if not all_content_pks.exists():
                 return
-
-            affected_paths = set()
-            for (relative_path,) in ContentArtifact.objects.filter(
-                content_id__in=all_content_pks
-            ).values_list("relative_path"):
-                parts = relative_path.split("/")
-                for i in range(len(parts)):
-                    affected_paths.add("" if i == 0 else "/".join(parts[:i]) + "/")
+            affected_paths = defaultdict(list)
+            for pks, path_type in ((added_pks, AddPath), (removed_pks, RemovePath)):
+                changed_paths = (
+                    ContentArtifact.objects.filter(content_id__in=pks)
+                    .values_list("relative_path", "artifact__size")
+                    .iterator()
+                )
+                for relative_path, artifact_size in changed_paths:
+                    parts = relative_path.split("/")
+                    for i in range(len(parts)):
+                        directory_path = "" if i == 0 else "/".join(parts[:i]) + "/"
+                        affected_paths[directory_path].append(
+                            path_type(relative_path, artifact_size)
+                        )
 
         if not affected_paths:
             return
 
         # Pre-fetch all existing index pages so we can remove stale ones without
         # issuing one EXISTS query per directory.
-        existing_index_pks = {
-            row["path"]: row["pk"]
-            for row in MavenIndexPage.objects.filter(pk__in=new_version.content).values(
-                "path", "pk"
-            )
+        existing_indexes_qs = MavenIndexPage.objects.filter(pk__in=new_version.content).only(
+            "path", "pk", "sha256", "pulp_type"
+        )
+        if not bulk_mode:
+            existing_indexes_qs = existing_indexes_qs.filter(path__in=affected_paths)
+        existing_indexes = {
+            index_page.path: index_page for index_page in existing_indexes_qs.iterator()
         }
 
         if bulk_mode:
@@ -927,25 +950,25 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                     name = (parts[i] + "/") if i + 1 < len(parts) else parts[i]
                     if not name:
                         continue
-                    # Last CA for this name wins (matches list_directory() behaviour).
-                    dir_entries[dir_path][name] = {
-                        "content_id": ca.content_id,
-                        "size": ca_size,
-                        "date": ca_date,
-                    }
+                    dir_entries[dir_path].setdefault(name, {"size": ca_size, "date": ca_date})
+                    if ca_date > dir_entries[dir_path][name]["date"]:
+                        dir_entries[dir_path][name]["date"] = ca_date
 
-            # Remove stale index pages and render HTML for every directory (CPU-only).
+            # Render HTML for every directory (CPU-only).
             pages_to_save: list = []
+            pages_to_remove: set = set()
             for dir_path, entries in dir_entries.items():
-                if dir_path in existing_index_pks:
-                    new_version.remove_content(
-                        MavenIndexPage.objects.filter(pk=existing_index_pks[dir_path])
-                    )
+                if dir_path in existing_indexes:
+                    pages_to_remove.add(existing_indexes[dir_path].pk)
                 directory_list = set(entries.keys())
                 if not directory_list:
                     continue
                 dates = {name: e["date"] for name, e in entries.items()}
-                sizes = {name: e["size"] for name, e in entries.items() if e["size"] is not None}
+                sizes = {
+                    name: e["size"]
+                    for name, e in entries.items()
+                    if e["size"] is not None and not name.endswith("/")
+                }
                 html_bytes = Handler.render_html(
                     directory_list, path=dir_path, dates=dates, sizes=sizes
                 ).encode("utf-8")
@@ -985,97 +1008,182 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                 )
 
             ContentArtifact.objects.bulk_create(cas_to_create, ignore_conflicts=True)
+            if pages_to_remove:
+                new_version.remove_content(MavenIndexPage.objects.filter(pk__in=pages_to_remove))
             if new_page_pks:
                 new_version.add_content(MavenIndexPage.objects.filter(pk__in=new_page_pks))
             return
 
         else:
-            # Incremental path (finalize_new_version): load ALL ContentArtifacts for the
-            # version in ONE query and bucket them into the affected directories in a
-            # single Python pass, instead of issuing one
-            # ``relative_path__startswith=<dir>`` query per affected directory.
-            #
-            # The per-directory approach always did at least one full-version scan: the
-            # root directory ("") is in every affected_paths set and its startswith=""
-            # filter matches every ContentArtifact in the version.  On large repositories
-            # that made finalize_new_version O(#directories) full/subtree scans
-            # (pulp_maven#484).  A single scan is never worse and is dramatically cheaper
-            # when many directories are touched (e.g. a multi-module release).
-            #
-            # rc_dates is still fetched only for the content IDs actually encountered —
-            # not the whole version's relationship table.
-            all_cas = list(
-                ContentArtifact.objects.select_related("artifact")
-                .filter(content__in=new_version.content)
-                .exclude(content__pulp_type="maven.index-page")
-            )
+            # Incremental path (finalize_new_version): determine the existing pages that will be
+            # modified and the new pages that will be created. For existing pages, parse the current
+            # HTML, then rebuild the HTML with the modified paths. If the rebuilt page would be empty,
+            # add it to the list of pages to remove. After new pages and modified pages are built,
+            # batch-save the artifacts and create the MavenIndexPage records.
 
-            # Resolve on-demand sizes (RemoteArtifact) in one query.
-            ca_pks_without_artifact = [ca.pk for ca in all_cas if not ca.artifact]
-            remote_sizes: dict = {}
-            if ca_pks_without_artifact:
-                for ra_ca_id, size in RemoteArtifact.objects.filter(
-                    content_artifact__in=ca_pks_without_artifact, size__isnull=False
-                ).values_list("content_artifact_id", "size"):
-                    remote_sizes[ra_ca_id] = size
+            modified_index_paths = affected_paths.keys() & existing_indexes.keys()
 
-            # Build per-directory listings in one pass; only keep affected directories.
-            dir_entries: dict = {dp: {} for dp in affected_paths}
-            all_content_ids: set = set()
-            for ca in all_cas:
-                parts = ca.relative_path.split("/")
-                ca_size = ca.artifact.size if ca.artifact else remote_sizes.get(ca.pk)
-                for i in range(len(parts)):
-                    dir_path = "" if i == 0 else "/".join(parts[:i]) + "/"
-                    entries = dir_entries.get(dir_path)
-                    if entries is None:
-                        continue
-                    name = (parts[i] + "/") if i + 1 < len(parts) else parts[i]
-                    if not name:
-                        continue
-                    all_content_ids.add(ca.content_id)
-                    # Last CA for this name wins (matches list_directory() behaviour).
-                    entries[name] = {
-                        "content_id": ca.content_id,
-                        "size": ca_size,
-                        "date": ca.pulp_created,  # placeholder; replaced below
-                    }
+            # Fetch all backing artifacts directly through their domain-scoped digests.
+            digest_to_paths = defaultdict(list)
+            for path in modified_index_paths:
+                page = existing_indexes[path]
+                digest_to_paths[page.sha256].append(path)
 
-            # Fetch RepositoryContent dates only for the content IDs we actually saw —
-            # one query instead of loading the entire version's relationship table.
-            rc_dates = {
-                rc.content_id: rc.pulp_created
-                for rc in new_version._content_relationships()
-                .filter(content_id__in=all_content_ids)
-                .only("content_id", "pulp_created")
+            artifacts_by_digest = {}
+            digests = list(digest_to_paths)
+            for offset in range(0, len(digests), 1000):
+                artifacts = (
+                    Artifact.objects.filter(
+                        sha256__in=digests[offset : offset + 1000],
+                        pulp_domain=self.pulp_domain,
+                    )
+                    .only("pk", "sha256", "file", "pulp_domain")
+                    .iterator()
+                )
+                artifacts_by_digest.update({artifact.sha256: artifact for artifact in artifacts})
+
+            # Missing and unreadable pages are optional optimization failures. Remove
+            # them and skip affected ancestors rather than failing repository creation.
+            missing = digest_to_paths.keys() - artifacts_by_digest.keys()
+            for digest in missing:
+                logger.warning(
+                    "Skipping Maven index pages with missing Artifact sha256=%s paths=%s",
+                    digest,
+                    digest_to_paths[digest],
+                )
+
+            # Parse the existing index pages from their artifacts
+            page_sources = [
+                (digest, artifacts_by_digest[digest])
+                for digest in digest_to_paths
+                if digest in artifacts_by_digest
+            ]
+            parsed_pages_by_digest, parse_failures = _parse_index_pages(page_sources)
+            for digest, exc in parse_failures.items():
+                logger.warning(
+                    "Skipping unreadable Maven index pages sha256=%s paths=%s: %s",
+                    digest,
+                    digest_to_paths[digest],
+                    exc,
+                )
+
+            unavailable_paths = {
+                directory_path
+                for digest in missing | parse_failures.keys()
+                for directory_path in digest_to_paths[digest]
+            }
+            skipped_paths = {
+                ancestor
+                for directory_path in unavailable_paths
+                for ancestor in ancestor_directory_paths(directory_path)
+                if ancestor in affected_paths
             }
 
-            # Apply dates and render HTML for every affected directory.
-            pages_to_save: list = []
-            for dir_path, entries in dir_entries.items():
-                for name, e in entries.items():
-                    e["date"] = rc_dates.get(e["content_id"], e["date"])
-                directory_list = set(entries.keys())
-                if not directory_list:
-                    continue
-                dates = {name: e["date"] for name, e in entries.items()}
-                sizes = {name: e["size"] for name, e in entries.items() if e["size"] is not None}
-                html_bytes = Handler.render_html(
-                    directory_list, path=dir_path, dates=dates, sizes=sizes
-                ).encode("utf-8")
-                pages_to_save.append((dir_path, html_bytes))
+            # Start with parsed state for existing pages and empty state for new pages.
+            page_states = {
+                directory_path: {}
+                for directory_path in affected_paths
+                if directory_path not in skipped_paths
+            }
+            for digest, parsed_entries in parsed_pages_by_digest.items():
+                parsed_state = {
+                    entry.name: {"date": entry.modified, "size": entry.size}
+                    for entry in parsed_entries
+                }
+                for directory_path in digest_to_paths[digest]:
+                    if directory_path not in page_states:
+                        continue
+                    page_states[directory_path] = {
+                        name: values.copy() for name, values in parsed_state.items()
+                    }
 
-            # Pass 3: parallel uploads (same batch path as repair_index_pages).
+            # Remove direct files first. Directory removals are determined bottom-up,
+            # after checking whether their child page actually became empty.
+            for directory_path, changes in affected_paths.items():
+                if directory_path not in page_states:
+                    continue
+                entries = page_states[directory_path]
+                for changed_path in changes:
+                    if not isinstance(changed_path, RemovePath):
+                        continue
+                    name = file_or_directory_name(directory_path, changed_path.relative_path)
+                    if not name.endswith("/"):
+                        entries.pop(name, None)
+
+                # Apply additions after removals so replacing content at the same path
+                # leaves the path present with the new size and timestamp.
+                for changed_path in changes:
+                    if not isinstance(changed_path, AddPath):
+                        continue
+                    name = file_or_directory_name(directory_path, changed_path.relative_path)
+                    entry = entries.setdefault(name, {"date": None, "size": None})
+                    entry["date"] = new_version.pulp_created
+                    if not name.endswith("/"):
+                        entry["size"] = changed_path.artifact_size
+
+            # Remove empty child directories from their parents, deepest first.
+            for directory_path in sorted(
+                page_states,
+                key=lambda value: value.count("/"),
+                reverse=True,
+            ):
+                if not directory_path:
+                    continue
+                child_path = directory_path.rstrip("/")
+                parent_prefix, _, child_name = child_path.rpartition("/")
+                parent_path = f"{parent_prefix}/" if parent_prefix else ""
+                if parent_path not in page_states:
+                    continue
+                child_entry_name = f"{child_name}/"
+                child_entries = page_states[directory_path]
+                if not child_entries:
+                    page_states[parent_path].pop(child_entry_name, None)
+                    continue
+
+                child_dates = [
+                    entry["date"] for entry in child_entries.values() if entry["date"] is not None
+                ]
+                child_date = (
+                    max(child_dates, key=lambda value: value.replace(tzinfo=None))
+                    if child_dates
+                    else None
+                )
+                page_states[parent_path][child_entry_name] = {
+                    "date": child_date,
+                    "size": None,
+                }
+
+            pages_to_remove = {
+                existing_indexes[directory_path].pk
+                for directory_path in affected_paths
+                if directory_path in existing_indexes
+            }
+            pages_to_save = []
+            for directory_path, entries in page_states.items():
+                if not entries:
+                    continue
+                directory_list = set(entries)
+                dates = {name: entry["date"] for name, entry in entries.items()}
+                sizes = {
+                    name: entry["size"]
+                    for name, entry in entries.items()
+                    if entry["size"] is not None and not name.endswith("/")
+                }
+                html_bytes = Handler.render_html(
+                    directory_list,
+                    path=directory_path,
+                    dates=dates,
+                    sizes=sizes,
+                ).encode("utf-8")
+                pages_to_save.append((directory_path, html_bytes))
+
+            # Pass 3: batch-save page artifacts (same path as repair_index_pages).
             dir_to_artifact = _save_artifacts_batch(pages_to_save, self.pulp_domain)
 
             # Pass 4: write DB records.
             new_page_pks: list = []
             cas_to_create: list = []
             for dir_path, artifact in dir_to_artifact.items():
-                if dir_path in existing_index_pks:
-                    new_version.remove_content(
-                        MavenIndexPage.objects.filter(pk=existing_index_pks[dir_path])
-                    )
                 page = MavenIndexPage(
                     path=dir_path,
                     sha256=artifact.sha256,
@@ -1099,6 +1207,8 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                     )
                 )
             ContentArtifact.objects.bulk_create(cas_to_create, ignore_conflicts=True)
+            if pages_to_remove:
+                new_version.remove_content(MavenIndexPage.objects.filter(pk__in=pages_to_remove))
             if new_page_pks:
                 new_version.add_content(MavenIndexPage.objects.filter(pk__in=new_page_pks))
 
