@@ -6,7 +6,7 @@ from logging import getLogger
 from os import path
 
 from django.contrib.postgres.indexes import GinIndex
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.db.models import Q
 from django_lifecycle import AFTER_CREATE, AFTER_DELETE, AFTER_UPDATE, hook
 
@@ -320,6 +320,91 @@ class MavenIndexPage(Content):
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
         unique_together = ("path", "sha256", "_pulp_domain")
+
+
+def _bulk_get_or_create_index_pages(dir_to_artifact, pulp_domain):
+    """Return index page primary keys after creating missing pages in bulk."""
+    page_pks = {}
+    digests = list({artifact.sha256 for artifact in dir_to_artifact.values()})
+    for offset in range(0, len(digests), 1000):
+        existing_pages = MavenIndexPage.objects.filter(
+            sha256__in=digests[offset : offset + 1000],
+            _pulp_domain=pulp_domain,
+        ).values_list("path", "sha256", "pk")
+        page_pks.update({(path, sha256): pk for path, sha256, pk in existing_pages})
+
+    missing_pages = [
+        (path, artifact.sha256)
+        for path, artifact in dir_to_artifact.items()
+        if (path, artifact.sha256) not in page_pks
+    ]
+    if missing_pages:
+        # Django does not support bulk_create() for multi-table inherited models.
+        # Create the Content parents through the ORM, then insert the child-table
+        # fields in true multi-row statements under the same transaction.
+        parent_rows = []
+        child_rows = []
+        for path, sha256 in missing_pages:
+            parent = Content(
+                pulp_type=MavenIndexPage.get_pulp_type(),
+                pulp_domain=pulp_domain,
+            )
+            parent_rows.append(parent)
+            child_rows.append((parent.pk, path, sha256, pulp_domain.pk))
+
+        table = connection.ops.quote_name(MavenIndexPage._meta.db_table)
+        columns = (
+            MavenIndexPage._meta.pk.column,
+            MavenIndexPage._meta.get_field("path").column,
+            MavenIndexPage._meta.get_field("sha256").column,
+            MavenIndexPage._meta.get_field("_pulp_domain").column,
+        )
+        quoted_columns = ", ".join(connection.ops.quote_name(column) for column in columns)
+        row_placeholders = f"({', '.join(['%s'] * len(columns))})"
+        insert_prefix = f"INSERT INTO {table} ({quoted_columns}) VALUES "
+
+        try:
+            with transaction.atomic():
+                Content.objects.bulk_create(parent_rows, batch_size=500)
+                with connection.cursor() as cursor:
+                    for offset in range(0, len(child_rows), 1000):
+                        batch = child_rows[offset : offset + 1000]
+                        values_sql = ", ".join([row_placeholders] * len(batch))
+                        params = [value for row in batch for value in row]
+                        cursor.execute(f"{insert_prefix}{values_sql}", params)
+        except IntegrityError:
+            # Another task can create a matching page after the initial lookup. The
+            # batch transaction has rolled back, so resolve only this rare race with
+            # the regular collision-safe save path.
+            for path, sha256 in missing_pages:
+                page = MavenIndexPage(
+                    path=path,
+                    sha256=sha256,
+                    _pulp_domain=pulp_domain,
+                )
+                try:
+                    with transaction.atomic():
+                        page.save()
+                except IntegrityError:
+                    page = MavenIndexPage.objects.get(
+                        path=path,
+                        sha256=sha256,
+                        _pulp_domain=pulp_domain,
+                    )
+                page_pks[(path, sha256)] = page.pk
+        else:
+            page_pks.update(
+                {
+                    (path, sha256): parent.pk
+                    for (path, sha256), parent in zip(
+                        missing_pages,
+                        parent_rows,
+                        strict=True,
+                    )
+                }
+            )
+
+    return {path: page_pks[(path, artifact.sha256)] for path, artifact in dir_to_artifact.items()}
 
 
 class MavenRemote(Remote, AutoAddObjPermsMixin):
@@ -979,33 +1064,21 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
             # Follows the same pattern as pulpcore's sync pipeline ArtifactSaver stage.
             dir_to_artifact = _save_artifacts_batch(pages_to_save, self.pulp_domain)
 
-            # Batch DB writes: one MavenIndexPage per directory, bulk ContentArtifacts,
-            # one add_content call for the entire set.
-            new_page_pks: list = []
-            cas_to_create: list = []
-            for dir_path, artifact in dir_to_artifact.items():
-                page = MavenIndexPage(
-                    path=dir_path,
-                    sha256=artifact.sha256,
-                    _pulp_domain=self.pulp_domain,
+            # Batch DB writes: Content parents, MavenIndexPage children,
+            # ContentArtifacts, and one add_content call for the entire set.
+            dir_to_page_pk = _bulk_get_or_create_index_pages(
+                dir_to_artifact,
+                self.pulp_domain,
+            )
+            new_page_pks = list(dir_to_page_pk.values())
+            cas_to_create = [
+                ContentArtifact(
+                    artifact=artifact,
+                    content_id=dir_to_page_pk[dir_path],
+                    relative_path=f"{dir_path}index.html",
                 )
-                try:
-                    with transaction.atomic():
-                        page.save()
-                except IntegrityError:
-                    page = MavenIndexPage.objects.get(
-                        path=dir_path,
-                        sha256=artifact.sha256,
-                        _pulp_domain=self.pulp_domain,
-                    )
-                new_page_pks.append(page.pk)
-                cas_to_create.append(
-                    ContentArtifact(
-                        artifact=artifact,
-                        content=page,
-                        relative_path=f"{dir_path}index.html",
-                    )
-                )
+                for dir_path, artifact in dir_to_artifact.items()
+            ]
 
             ContentArtifact.objects.bulk_create(cas_to_create, ignore_conflicts=True)
             if pages_to_remove:
@@ -1181,31 +1254,19 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
             dir_to_artifact = _save_artifacts_batch(pages_to_save, self.pulp_domain)
 
             # Pass 4: write DB records.
-            new_page_pks: list = []
-            cas_to_create: list = []
-            for dir_path, artifact in dir_to_artifact.items():
-                page = MavenIndexPage(
-                    path=dir_path,
-                    sha256=artifact.sha256,
-                    _pulp_domain=self.pulp_domain,
+            dir_to_page_pk = _bulk_get_or_create_index_pages(
+                dir_to_artifact,
+                self.pulp_domain,
+            )
+            new_page_pks = list(dir_to_page_pk.values())
+            cas_to_create = [
+                ContentArtifact(
+                    artifact=artifact,
+                    content_id=dir_to_page_pk[dir_path],
+                    relative_path=f"{dir_path}index.html",
                 )
-                try:
-                    with transaction.atomic():
-                        page.save()
-                except IntegrityError:
-                    page = MavenIndexPage.objects.get(
-                        path=dir_path,
-                        sha256=artifact.sha256,
-                        _pulp_domain=self.pulp_domain,
-                    )
-                new_page_pks.append(page.pk)
-                cas_to_create.append(
-                    ContentArtifact(
-                        artifact=artifact,
-                        content=page,
-                        relative_path=f"{dir_path}index.html",
-                    )
-                )
+                for dir_path, artifact in dir_to_artifact.items()
+            ]
             ContentArtifact.objects.bulk_create(cas_to_create, ignore_conflicts=True)
             if pages_to_remove:
                 new_version.remove_content(MavenIndexPage.objects.filter(pk__in=pages_to_remove))
