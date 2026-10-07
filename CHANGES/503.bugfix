@@ -1,1 +1,0 @@
-Fixed ingested `maven-metadata.xml` files and their checksums getting a bogus version when the artifactId contains a digit, which defeated deduplication and produced duplicate relative paths.
