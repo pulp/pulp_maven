@@ -1,1 +1,0 @@
-Improved Maven index-page generation so incremental updates scale with affected paths instead of total repository size.
