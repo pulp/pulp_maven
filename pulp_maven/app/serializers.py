@@ -447,12 +447,19 @@ class MavenRemoteSerializer(platform.RemoteSerializer):
 
     For example::
 
+    metadata_cache_ttl = serializers.IntegerField(
+        min_value=0,
+        max_value=2147483647,
+        required=False,
+        help_text=_("Seconds to cache upstream Maven metadata and checksums. 0 disables caching."),
+    )
+
     class Meta:
         validators = platform.RemoteSerializer.Meta.validators + [myValidator1, myValidator2]
     """
 
     class Meta:
-        fields = platform.RemoteSerializer.Meta.fields
+        fields = platform.RemoteSerializer.Meta.fields + ("metadata_cache_ttl",)
         model = models.MavenRemote
 
 
