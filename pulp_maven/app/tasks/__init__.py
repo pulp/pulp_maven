@@ -190,9 +190,14 @@ def _save_artifacts_batch(pages, pulp_domain):
 
         def flush_pending():
             pending_artifacts.sort(key=lambda artifact: artifact.sha256)
-            artifacts = Artifact.objects.bulk_get_or_create(pending_artifacts)
-            sha256_to_artifact.update({artifact.sha256: artifact for artifact in artifacts})
-            pending_artifacts.clear()
+            try:
+                artifacts = Artifact.objects.bulk_get_or_create(pending_artifacts)
+                sha256_to_artifact.update({artifact.sha256: artifact for artifact in artifacts})
+            finally:
+                # bulk_create bypasses Artifact.save(), including its file cleanup.
+                for artifact in pending_artifacts:
+                    artifact.file.close()
+                pending_artifacts.clear()
 
         with tempfile.TemporaryDirectory() as temp_dir:
 
