@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import textwrap
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -19,7 +20,9 @@ from pulpcore.plugin.util import get_default_domain, get_domain, set_domain
 
 from pulp_maven.app.models import (
     MavenArtifact,
+    MavenIndexPage,
     MavenRepository,
+    _bulk_get_or_create_index_pages,
 )
 from pulp_maven.app.path_index.format import InvalidIndex
 from pulp_maven.app.tasks import _save_artifact
@@ -76,6 +79,27 @@ def change(repository, add=(), remove=()):
         version.remove_content(MavenArtifact.objects.filter(pk__in=[u.pk for u in remove]))
         version.add_content(MavenArtifact.objects.filter(pk__in=[u.pk for u in add]))
     return version
+
+
+def test_index_pages_are_bulk_created_and_reused(repository):
+    first_pages = {
+        "": SimpleNamespace(sha256="1" * 64),
+        "org/": SimpleNamespace(sha256="2" * 64),
+    }
+    first_pks = _bulk_get_or_create_index_pages(first_pages, repository.pulp_domain)
+
+    assert set(first_pks) == set(first_pages)
+    assert MavenIndexPage.objects.filter(pk__in=first_pks.values()).count() == 2
+
+    second_pages = {
+        **first_pages,
+        "org/example/": SimpleNamespace(sha256="3" * 64),
+    }
+    second_pks = _bulk_get_or_create_index_pages(second_pages, repository.pulp_domain)
+
+    assert second_pks[""] == first_pks[""]
+    assert second_pks["org/"] == first_pks["org/"]
+    assert MavenIndexPage.objects.filter(pk__in=second_pks.values()).count() == 3
 
 
 @pytest.fixture
