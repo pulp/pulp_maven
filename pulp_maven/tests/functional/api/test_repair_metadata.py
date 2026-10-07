@@ -779,12 +779,12 @@ def test_repair_index_pages_domain_context(
     1. Add content — finalize_new_version auto-generates index pages.
     2. Strip those pages and run orphan cleanup so the backing artifacts are
        deleted from storage, forcing repair_index_pages to create fresh ones
-       via the parallel ThreadPoolExecutor upload path (the buggy code path).
+       via the batch artifact-save path.
     3. Assert the pages are gone before repair runs.
-    4. Run repair_index_pages and look up each generated MavenIndexPage.
-    5. Use ArtifactsApi.list(sha256=..., pulp_domain=domain_name) to verify
-       each artifact exists in the non-default domain with a storage path
-       starting with 'artifact/{domain_uuid}/' and is absent from the default.
+    4. Run repair_index_pages and verify it recreated the same directory paths.
+    5. Use each repaired page's sha256 to verify its artifact exists in the
+       non-default domain with a storage path starting with
+       'artifact/{domain_uuid}/'.
 
     Not marked parallel: orphan cleanup must run between the strip and repair
     steps without interference from concurrent tests.
@@ -821,7 +821,7 @@ def test_repair_index_pages_domain_context(
 
     # finalize_new_version auto-generates index pages when content is added.
     # Strip them so repair_index_pages must create fresh artifacts via the
-    # parallel ThreadPoolExecutor upload path — the code path that had the bug.
+    # batch artifact-save path.
     repo = maven_repo_api_client.read(repo.pulp_href)
     auto_pages = maven_bindings.ContentMavenIndexPageApi.list(
         repository_version=repo.latest_version_href,
@@ -856,12 +856,13 @@ def test_repair_index_pages_domain_context(
         if version.pulp_href != repo.latest_version_href:
             monitor_task(maven_bindings.RepositoriesMavenVersionsApi.delete(version.pulp_href).task)
 
-    # Capture sha256 values before orphan cleanup deletes the content objects.
+    # Capture paths and sha256 values before orphan cleanup deletes the content objects.
+    auto_page_paths = {p.path for p in auto_pages.results}
     auto_page_sha256s = [p.sha256 for p in auto_pages.results]
 
     # Run orphan cleanup so the backing Artifact objects are deleted from storage.
     # Without this, repair_index_pages would find the existing artifacts via the
-    # sha256 batch check and skip uploading — never exercising the buggy code path.
+    # sha256 batch check and skip uploading — never exercising the batch save.
     monitor_task(
         pulpcore_bindings.OrphansCleanupApi.cleanup(
             {"orphan_protection_time": 0}, pulp_domain=domain_name
@@ -878,7 +879,7 @@ def test_repair_index_pages_domain_context(
         assert still_present.count == 0, (
             f"Artifact sha256={sha256} still present in domain '{domain_name}' "
             "after orphan cleanup — repair_index_pages would reuse it instead of "
-            "uploading fresh, so the parallel upload path would not be exercised."
+            "uploading fresh, so the batch artifact-save path would not be exercised."
         )
 
     # Run repair_index_pages in the non-default domain context.
@@ -887,19 +888,24 @@ def test_repair_index_pages_domain_context(
     monitor_task(maven_repo_api_client.repair_index_pages(repo.pulp_href).task)
     repo = maven_repo_api_client.read(repo.pulp_href)
 
-    # Confirm repair produced pages in the repository version.
+    # Confirm repair reproduced the same directory paths. The HTML digests can differ
+    # because incremental generation uses the repository-version creation time while
+    # repair reconstructs timestamps from RepositoryContent memberships. Both render
+    # timestamps to minute precision, so a version created on a minute boundary can
+    # legitimately produce different bytes.
     repaired_pages = maven_bindings.ContentMavenIndexPageApi.list(
         repository_version=repo.latest_version_href,
         pulp_domain=domain_name,
-        limit=1,
+        limit=100,
     )
-    assert repaired_pages.count > 0, f"No index pages found in domain '{domain_name}' after repair"
+    repaired_page_paths = {p.path for p in repaired_pages.results}
+    assert repaired_page_paths == auto_page_paths, (
+        f"Repair changed the indexed paths: missing={auto_page_paths - repaired_page_paths}, "
+        f"unexpected={repaired_page_paths - auto_page_paths}"
+    )
 
-    # For each sha256 that belonged to the auto-generated pages (captured before
-    # orphan cleanup), verify that repair_index_pages wrote the artifact to the
-    # sha256s we confirmed were absent from the domain after cleanup, so finding
-    # them now in the non-default domain proves repair uploaded fresh artifacts
-    # via the parallel ThreadPoolExecutor path — in the correct domain context.
+    # Verify each repaired page's current artifact was written to the non-default
+    # domain by the batch artifact-save path.
     #
     # Note: we do NOT assert absence from the default domain here.  Simple index
     # pages (e.g., the root listing containing only "com/") can have identical
@@ -909,16 +915,18 @@ def test_repair_index_pages_domain_context(
     # check is that the artifact IS in the non-default domain at the expected
     # domain-specific storage path.
     expected_prefix = f"artifact/{domain_uuid}/"
-    for sha256 in auto_page_sha256s:
+    for page in repaired_pages.results:
         in_domain = pulpcore_bindings.ArtifactsApi.list(
-            sha256=sha256, pulp_domain=domain_name, limit=1
+            sha256=page.sha256, pulp_domain=domain_name, limit=1
         )
         assert in_domain.count == 1, (
-            f"Artifact sha256={sha256} not found in domain '{domain_name}' after repair. "
+            f"Artifact sha256={page.sha256} for path '{page.path}' not found in domain "
+            f"'{domain_name}' after repair. "
             "The artifact may have been saved to the wrong domain (issue #468)."
         )
         stored_path = in_domain.results[0].file
         assert stored_path.startswith(expected_prefix), (
-            f"Artifact sha256={sha256} stored at wrong path '{stored_path}' — "
+            f"Artifact sha256={page.sha256} for path '{page.path}' stored at wrong path "
+            f"'{stored_path}' — "
             f"expected prefix '{expected_prefix}' (issue #468)."
         )
