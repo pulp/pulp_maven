@@ -3,6 +3,7 @@ import hashlib
 import logging
 import tempfile
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from asgiref.sync import sync_to_async
@@ -33,6 +34,7 @@ from pulp_maven.app.models import (
     MavenMetadata,
     MavenRepository,
 )
+from pulp_maven.app.util import PulpListingParser
 
 log = logging.getLogger(__name__)
 
@@ -166,19 +168,14 @@ def _save_artifacts_batch(pages, pulp_domain):
         ):
             sha256_to_artifact[artifact.sha256] = artifact
 
-    # Upload only the artifacts that do not already exist, in parallel.
-    # _save_artifact is thread-safe (transaction.atomic() with IntegrityError handling).
-    # Each worker opens at most two fds (NamedTemporaryFile + init_and_validate),
-    # both closed before the call returns, so there is no fd accumulation.
+    # Prepare only the artifacts that do not already exist, in parallel. Database
+    # insertion remains batched in the calling thread.
     new_items = [
         (digest, html_bytes)
         for digest, (_, html_bytes) in sha256_to_repr.items()
         if digest not in sha256_to_artifact
     ]
-
     if new_items:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
         from pulpcore.plugin.util import get_domain, set_domain
 
         # ContextVar values (including the domain set by pulpcore's task runner) do
@@ -189,17 +186,67 @@ def _save_artifacts_batch(pages, pulp_domain):
         # already entered" when more than one worker fires at the same time).
         current_domain = get_domain()
 
-        def _upload(digest, html_bytes):
-            set_domain(current_domain)
-            return digest, _save_artifact(html_bytes, pulp_domain)
+        pending_artifacts = []
 
-        with ThreadPoolExecutor(max_workers=10) as pool:
-            futs = {pool.submit(_upload, d, h): d for d, h in new_items}
-            for fut in as_completed(futs):
-                digest, artifact = fut.result()
-                sha256_to_artifact[digest] = artifact
+        def flush_pending():
+            pending_artifacts.sort(key=lambda artifact: artifact.sha256)
+            artifacts = Artifact.objects.bulk_get_or_create(pending_artifacts)
+            sha256_to_artifact.update({artifact.sha256: artifact for artifact in artifacts})
+            pending_artifacts.clear()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+
+            def _upload(digest, html_bytes):
+                set_domain(current_domain)
+                with tempfile.NamedTemporaryFile(dir=temp_dir, delete=False) as tmp:
+                    tmp.write(html_bytes)
+                    tmp.flush()
+                    artifact = Artifact.init_and_validate(
+                        tmp.name,
+                        expected_digests={"sha256": digest},
+                    )
+                artifact.pulp_domain = pulp_domain
+                return artifact
+
+            with ThreadPoolExecutor(max_workers=10) as pool:
+                futures = {pool.submit(_upload, digest, data) for digest, data in new_items}
+                for future in as_completed(futures):
+                    pending_artifacts.append(future.result())
+                    if len(pending_artifacts) >= 500:
+                        flush_pending()
+
+            if pending_artifacts:
+                flush_pending()
 
     return {dir_path: sha256_to_artifact[digest] for dir_path, digest in dir_to_sha256.items()}
+
+
+def _parse_index_pages(page_sources):
+    """Return parsed entries and failures keyed by digest for index page Artifacts."""
+
+    def parse_page(digest, artifact):
+        parser = PulpListingParser()
+        with artifact.file.open("rb") as handle:
+            parser.feed(handle.read().decode("utf-8"))
+        parser.close()
+        return digest, parser.entries
+
+    result = {}
+    failures = {}
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        futures = {
+            pool.submit(parse_page, digest, artifact): digest for digest, artifact in page_sources
+        }
+        for future in as_completed(futures):
+            digest = futures[future]
+            try:
+                _, entries = future.result()
+            except Exception as exc:
+                failures[digest] = exc
+            else:
+                result[digest] = entries
+
+    return result, failures
 
 
 async def aadd_and_remove(*args, **kwargs):
