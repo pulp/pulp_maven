@@ -113,3 +113,17 @@ added to a repository version through other operations (upload, promote, or the
 `POST /pulp/default/api/v3/repositories/maven/maven/{uuid}/repair_metadata/`
 
 Triggers a full metadata regeneration for the repository. Returns a 202 response with a task href.
+
+## Caching upstream metadata
+
+For pull-through distributions, set `metadata_cache_ttl` on the Maven remote to
+cache upstream `maven-metadata.xml` files and their checksum sidecars in Redis.
+The value is a duration in seconds; for example, `300` caches each successfully
+fetched file for five minutes. The default, `0`, disables metadata caching.
+You can set this field when creating a remote or update it through the remote API.
+
+After expiration, the next request fetches a fresh copy from upstream. Cache hits
+do not extend the expiration. Updating the remote invalidates its cached entries.
+Each path expires independently, including checksum sidecars. Metadata is not
+added to repository versions. Redis failures fall back to upstream downloads,
+and files larger than 4 MiB are streamed without caching.

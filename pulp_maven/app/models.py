@@ -416,6 +416,23 @@ class MavenRemote(Remote, AutoAddObjPermsMixin):
 
     TYPE = "maven"
 
+    metadata_cache_ttl = models.PositiveIntegerField(default=0)
+
+    def get_downloader(self, remote_artifact=None, url=None, download_factory=None, **kwargs):
+        from pulp_maven.app.metadata_cache import cache_downloader, is_metadata_path
+
+        downloader = super().get_downloader(
+            remote_artifact=remote_artifact, url=url, download_factory=download_factory, **kwargs
+        )
+        if (
+            self.metadata_cache_ttl
+            and remote_artifact is not None
+            and kwargs.get("headers_ready_callback") is not None
+            and is_metadata_path(remote_artifact.content_artifact.relative_path)
+        ):
+            return cache_downloader(downloader, self)
+        return downloader
+
     @staticmethod
     def get_remote_artifact_content_type(relative_path=None):
         """
@@ -426,7 +443,8 @@ class MavenRemote(Remote, AutoAddObjPermsMixin):
         remote without saving locally.
         """
         if relative_path and (
-            relative_path.endswith(
+            relative_path == "maven-metadata.xml"
+            or relative_path.endswith(
                 (
                     "/maven-metadata.xml",
                     ".xml.md5",
