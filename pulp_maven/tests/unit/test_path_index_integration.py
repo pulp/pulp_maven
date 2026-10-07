@@ -25,7 +25,7 @@ from pulp_maven.app.models import (
     _bulk_get_or_create_index_pages,
 )
 from pulp_maven.app.path_index.format import InvalidIndex
-from pulp_maven.app.tasks import _save_artifact
+from pulp_maven.app.tasks import _save_artifact, _save_artifacts_batch
 
 pytestmark = pytest.mark.django_db
 
@@ -100,6 +100,16 @@ def test_index_pages_are_bulk_created_and_reused(repository):
     assert second_pks[""] == first_pks[""]
     assert second_pks["org/"] == first_pks["org/"]
     assert MavenIndexPage.objects.filter(pk__in=second_pks.values()).count() == 3
+
+
+def test_batch_artifact_files_are_closed(repository):
+    marker = uuid4().hex.encode()
+    pages = [(f"path-{i}/", marker + str(i).encode()) for i in range(501)]
+
+    artifacts = _save_artifacts_batch(pages, repository.pulp_domain)
+
+    assert len(artifacts) == len(pages)
+    assert all(artifact.file.closed for artifact in artifacts.values())
 
 
 @pytest.fixture
