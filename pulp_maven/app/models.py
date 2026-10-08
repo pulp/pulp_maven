@@ -416,6 +416,52 @@ class MavenRemote(Remote, AutoAddObjPermsMixin):
 
     TYPE = "maven"
 
+    exclude_group_ids = models.JSONField(default=list, blank=True)
+
+    @staticmethod
+    def group_id_to_path_prefix(group_id):
+        """Convert a groupId such as ``com.example`` into the path prefix ``com/example/``."""
+        return group_id.strip().strip(".").replace(".", "/") + "/"
+
+    def is_group_excluded(self, relative_path):
+        """
+        Return True if relative_path lives under one of the excluded group IDs.
+
+        Matching is done on whole path segments, so excluding ``com.example`` covers
+        ``com.example`` and ``com.example.sub`` but not ``com.example2``.
+        """
+        if not self.exclude_group_ids:
+            return False
+        # Collapse "//", "." and ".." segments so that e.g. "foo/../com/example/x" or
+        # "com//example/x" cannot slip past the prefix check but still reach the upstream.
+        segments = []
+        for segment in relative_path.split("/"):
+            if segment in ("", "."):
+                continue
+            if segment == "..":
+                if segments:
+                    segments.pop()
+                continue
+            segments.append(segment)
+        # Appending "/" lets a directory request without a trailing slash match its own group.
+        candidate = "/".join(segments) + "/"
+        return any(
+            candidate.startswith(self.group_id_to_path_prefix(group_id))
+            for group_id in self.exclude_group_ids
+            if group_id.strip().strip(".")
+        )
+
+    def get_remote_artifact_url(self, relative_path=None, request=None):
+        """
+        Return None for excluded groups so pull-through never contacts the upstream.
+
+        Pulpcore treats a falsy URL as "not available remotely" and answers with a 404 once
+        local content has been checked.
+        """
+        if relative_path and self.is_group_excluded(relative_path):
+            return None
+        return super().get_remote_artifact_url(relative_path, request=request)
+
     @staticmethod
     def get_remote_artifact_content_type(relative_path=None):
         """
