@@ -1,1 +1,0 @@
-Include the offending relative_path (and content_id) in the path-index InvalidIndex errors raised during repository version finalization, so operators can identify the problematic artifact.
