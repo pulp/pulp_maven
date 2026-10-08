@@ -62,23 +62,44 @@ def changed_paths(version, *, pages=True):
 
 def checked_rows(rows, domain):
     previous = None
+    previous_content_id = None
     for row in rows:
         path = row["relative_path"]
-        if (
-            path == previous
-            or not path
-            or path.startswith("/")
-            or any(part in {"", ".", ".."} for part in path.split("/"))
-        ):
-            raise InvalidIndex("Ambiguous or noncanonical artifact path")
+        content_id = row["content_id"]
+        if path == previous:
+            raise InvalidIndex(
+                f"Ambiguous artifact path (duplicate relative_path): {path!r} "
+                f"(content_id={content_id}, previous content_id={previous_content_id})"
+            )
+        if not path:
+            raise InvalidIndex(
+                f"Noncanonical artifact path (empty): {path!r} (content_id={content_id})"
+            )
+        if path.startswith("/"):
+            raise InvalidIndex(
+                f"Noncanonical artifact path (absolute, leading '/'): {path!r} "
+                f"(content_id={content_id})"
+            )
+        if any(part in {"", ".", ".."} for part in path.split("/")):
+            raise InvalidIndex(
+                f"Noncanonical artifact path (empty, '.', or '..' segment): {path!r} "
+                f"(content_id={content_id})"
+            )
         previous = path
+        previous_content_id = content_id
         if not row["artifact__sha256"] or row["artifact__size"] is None:
-            raise InvalidIndex("The version contains unresolved on-demand content")
+            raise InvalidIndex(
+                f"The version contains unresolved on-demand content: {path!r} "
+                f"(content_id={content_id})"
+            )
         if row["artifact__pulp_domain_id"] != domain.pk:
-            raise InvalidIndex("Artifact domain mismatch")
+            raise InvalidIndex(f"Artifact domain mismatch for {path!r} (content_id={content_id})")
         artifact = Artifact(sha256=row["artifact__sha256"], pulp_domain=domain)
         if artifact.storage_path(None) != row["artifact__file"]:
-            raise InvalidIndex("Artifact storage does not use the supported digest layout")
+            raise InvalidIndex(
+                f"Artifact storage does not use the supported digest layout for {path!r} "
+                f"(content_id={content_id})"
+            )
         yield row
 
 
