@@ -8,6 +8,26 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.34.0 (2026-10-07) {: #0.34.0 }
+
+#### Features {: #0.34.0-feature }
+
+- Added ``GET .../packages/flat/`` to list one MavenPackage per stored GAV, with the version string unchanged.
+  [#514](https://github.com/pulp/pulp_maven/issues/514)
+
+#### Bugfixes {: #0.34.0-bugfix }
+
+- Fixed ingested `maven-metadata.xml` files and their checksums getting a bogus version when the artifactId contains a digit, which defeated deduplication and produced duplicate relative paths.
+  [#503](https://github.com/pulp/pulp_maven/issues/503)
+- Fixed the repository package catalog building a SQL ``IN`` list of every content id, so a paged package list no longer aggregates the whole repository before applying limit and offset.
+  [#510](https://github.com/pulp/pulp_maven/issues/510)
+
+#### Misc {: #0.34.0-misc }
+
+- [#maven-index-page-performance](https://github.com/pulp/pulp_maven/issues/maven-index-page-performance)
+
+---
+
 ## 0.33.2 (2026-09-29) {: #0.33.2 }
 
 #### Bugfixes {: #0.33.2-bugfix }
