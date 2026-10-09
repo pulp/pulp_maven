@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.34.2 (2026-10-09) {: #0.34.2 }
+
+#### Bugfixes {: #0.34.2-bugfix }
+
+- Fixed ``GET .../packages/flat/`` so the OpenAPI schema includes ``limit`` and ``offset``.
+  [#514](https://github.com/pulp/pulp_maven/issues/514)
+
+---
+
 ## 0.34.1 (2026-10-08) {: #0.34.1 }
 
 #### Bugfixes {: #0.34.1-bugfix }
