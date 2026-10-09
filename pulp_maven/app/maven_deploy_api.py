@@ -10,6 +10,7 @@ from rest_framework.exceptions import Throttled
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from pulpcore.plugin.access_policy import AccessPolicyFromDB
 from pulpcore.plugin.models import Artifact, ContentArtifact
 from pulpcore.plugin.tasking import dispatch
 from pulpcore.plugin.util import get_domain
@@ -76,9 +77,41 @@ class MavenApiViewSet(APIView):
 
     lookup_field = "name"
 
-    # Authentication disabled for now
-    authentication_classes = []
-    permission_classes = []
+    permission_classes = [AccessPolicyFromDB]
+
+    def initial(self, request, *args, **kwargs):
+        # Policy statements below are written per HTTP method. Without this the
+        # access-policy library falls back to the class name as the action, no
+        # statement matches, and every request is refused.
+        self.action = request.method.lower()
+        super().initial(request, *args, **kwargs)
+
+    # This endpoint speaks the Maven wire protocol to build tools, not to browsers,
+    # so an unauthorized request has to be answered in a way those tools understand.
+    # Leaving the default authentication classes in place means an anonymous request
+    # is answered with 401 and a challenge; Ivy-based clients only send credentials
+    # once challenged, and would never authenticate against a bare refusal.
+    DEFAULT_ACCESS_POLICY = {
+        "statements": [
+            {
+                "action": ["get"],
+                "principal": "authenticated",
+                "effect": "allow",
+                "condition": "maven_has_repository_perm:maven.view_mavenrepository",
+            },
+            {
+                "action": ["put"],
+                "principal": "authenticated",
+                "effect": "allow",
+                "condition": "maven_has_repository_perm:maven.modify_mavenrepository",
+            },
+        ],
+    }
+
+    @classmethod
+    def urlpattern(cls):
+        """Identifies this view's access policy row in the database."""
+        return "maven/deploy"
 
     def redirect_to_content_app(self, distribution, relative_path, request):
         scheme = request.META.get("HTTP_X_FORWARDED_PROTO", request.scheme)
