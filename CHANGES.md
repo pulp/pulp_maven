@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.34.3 (2026-10-09) {: #0.34.3 }
+
+#### Bugfixes {: #0.34.3-bugfix }
+
+- Increased the `Cache-Control` max-age header for path index responses from 0 to 86400 seconds (24 hours) to reduce unnecessary revalidation requests.
+  [#532](https://github.com/pulp/pulp_maven/issues/532)
+
+---
+
 ## 0.34.2 (2026-10-09) {: #0.34.2 }
 
 #### Bugfixes {: #0.34.2-bugfix }
