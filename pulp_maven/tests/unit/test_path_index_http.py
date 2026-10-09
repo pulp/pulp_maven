@@ -103,7 +103,7 @@ def test_html_paths_stream_inline_with_cache_headers(path, backend, settings):
                 assert await response.read() == raw
                 assert response.headers["Content-Type"] == "text/html; charset=utf-8"
                 assert response.headers["Content-Disposition"] == "inline"
-                assert response.headers["Cache-Control"] == "public, max-age=0, must-revalidate"
+                assert response.headers["Cache-Control"] == "public, max-age=86400, must-revalidate"
                 assert response.headers["ETag"] == f'"{entry(raw).artifact_sha256.hex()}"'
                 assert response.headers["Last-Modified"]
                 assert response.headers["Content-Length"] == str(len(raw))
@@ -144,7 +144,7 @@ def test_conditional_html_and_head_do_not_read_storage(settings):
             )
             assert result.status == 304
             assert await result.read() == b""
-            assert result.headers["Cache-Control"] == "public, max-age=0, must-revalidate"
+            assert result.headers["Cache-Control"] == "public, max-age=86400, must-revalidate"
             assert result.headers["ETag"] == f'"{item.artifact_sha256.hex()}"'
             assert result.headers["Last-Modified"]
             result = await client.get("/", headers={"If-Match": '"other"'})
