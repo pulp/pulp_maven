@@ -17,7 +17,7 @@ def headers_for(entry, headers):
         {
             "ETag": f'"{entry.artifact_sha256.hex()}"',
             "Last-Modified": formatdate(entry.last_modified, usegmt=True),
-            "Cache-Control": "public, max-age=0, must-revalidate",
+            "Cache-Control": "public, max-age=86400, must-revalidate",
         }
     )
     return headers
