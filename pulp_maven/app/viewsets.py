@@ -69,6 +69,7 @@ from pulp_maven.app.serializers import (
 from pulp_maven.app.tasks import (
     repair_index_pages,
     repair_metadata,
+    repair_packages,
 )
 from pulp_maven.app.versions import (
     BUILD_SUFFIX_PATTERN,
@@ -489,6 +490,7 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
                 "action": [
                     "repair_metadata",
                     "repair_index_pages",
+                    "repair_packages",
                     "build_path_index",
                     "compact_path_index",
                 ],
@@ -889,6 +891,27 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
         repository = self.get_object()
         result = dispatch(
             repair_index_pages,
+            exclusive_resources=[repository],
+            kwargs={"repository_pk": str(repository.pk)},
+        )
+        return OperationPostponedResponse(result, request)
+
+    @extend_schema(
+        description=(
+            "Trigger an asynchronous task that reconciles MavenPackage membership for the "
+            "latest repository version: associate missing packages and remove packages whose "
+            "GAV no longer has a POM."
+        ),
+        summary="Repair packages",
+        request=None,
+        responses={202: AsyncOperationResponseSerializer},
+    )
+    @action(detail=True, methods=["post"])
+    def repair_packages(self, request, pk, **kwargs):
+        """Dispatch a task to reconcile MavenPackage membership for the latest version."""
+        repository = self.get_object()
+        result = dispatch(
+            repair_packages,
             exclusive_resources=[repository],
             kwargs={"repository_pk": str(repository.pk)},
         )

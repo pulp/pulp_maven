@@ -2,6 +2,7 @@ import datetime
 import hashlib
 import logging
 import tempfile
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -32,6 +33,7 @@ from pulp_maven.app.bloom import (
 from pulp_maven.app.models import (
     MavenArtifact,
     MavenMetadata,
+    MavenPackage,
     MavenRepository,
 )
 from pulp_maven.app.util import PulpListingParser
@@ -724,3 +726,43 @@ def generate_bloom_filter(repository_pk):
         log.warning("No latest version found for repository %s", repository.name)
         return
     _generate_bloom_filter(repository, latest_version)
+
+
+def repair_packages(repository_pk):
+    """
+    Reconcile MavenPackage membership for a repository's latest version.
+
+    Opens a new version and calls ``MavenRepository._ensure_packages_full_scan``. Idempotent: when
+    nothing changes the empty draft version is discarded, so no new version is created.
+    """
+    started = time.monotonic()
+    repository = MavenRepository.objects.get(pk=repository_pk)
+    latest_version = repository.latest_version()
+    if not latest_version:
+        log.info("repair_packages: repository %r has no version; nothing to do.", repository.name)
+        return
+
+    from pulp_maven.app.models import _pull_through_ctx
+
+    version_before = latest_version.number
+    pkgs_before = MavenPackage.objects.filter(pk__in=latest_version.content).count()
+
+    # Skip finalize_new_version's auto steps so this version only touches package membership.
+    _pull_through_ctx.active = True
+    try:
+        with repository.new_version() as new_version:
+            repository._ensure_packages_full_scan(new_version)
+    finally:
+        _pull_through_ctx.active = False
+
+    new_latest = repository.latest_version()
+    pkgs_after = MavenPackage.objects.filter(pk__in=new_latest.content).count()
+    log.info(
+        "repair_packages: repository=%r version %s -> %s | MavenPackages %d -> %d (%.1fs)",
+        repository.name,
+        version_before,
+        new_latest.number,
+        pkgs_before,
+        pkgs_after,
+        time.monotonic() - started,
+    )
