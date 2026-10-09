@@ -5,6 +5,8 @@ import mmap
 import struct
 from dataclasses import dataclass
 
+from pulpcore.plugin.exceptions import PulpException
+
 BASE_MAGIC = b"PULPXIDX"
 DELTA_MAGIC = b"PULPXDLT"
 FORMAT_VERSION = 1
@@ -14,8 +16,16 @@ RECORD = struct.Struct(">16s32sQq")
 HASH_SIZE = 16
 
 
-class InvalidIndex(ValueError):
+class InvalidIndex(PulpException, ValueError):
     """The file cannot establish either presence or absence of a path."""
+
+    error_code = "MAVEN0001"
+
+    def __init__(self, message=""):
+        self.message = message
+
+    def __str__(self):
+        return self.message
 
 
 def path_hash(path):
