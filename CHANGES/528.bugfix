@@ -1,0 +1,6 @@
+The Maven deploy API now authenticates and authorizes requests. It previously
+accepted uploads from anyone who could reach it. Uploading requires
+`modify_mavenrepository` and reading requires `view_mavenrepository` on the
+repository named in the request path, and an unauthenticated request is answered
+with a `401` and an authentication challenge so build tools that wait to be
+challenged can authenticate.

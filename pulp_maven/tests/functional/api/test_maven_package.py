@@ -302,6 +302,7 @@ def test_mvn_deploy_creates_package(
     maven_distribution_factory,
     tmp_path,
     pulp_settings,
+    bindings_cfg,
 ):
     """Verify that `mvn deploy` creates a MavenPackage for the deployed project."""
     repo = maven_repo_factory()
@@ -324,8 +325,18 @@ def test_mvn_deploy_creates_package(
                 f"{tmp_path}/simple-project/pom.xml",
             ]
         )
+        # The deploy endpoint authenticates, so the build has to present
+        # credentials or nothing is uploaded.
+        settings_path = tmp_path / "settings.xml"
+        settings_path.write_text(
+            "<settings><servers><server>"
+            "<id>pulp</id>"
+            f"<username>{bindings_cfg.username}</username>"
+            f"<password>{bindings_cfg.password}</password>"
+            "</server></servers></settings>"
+        )
         subprocess.run(
-            ["mvn", "deploy"],
+            ["mvn", "deploy", "-s", str(settings_path)],
             cwd=f"{tmp_path}/simple-project",
             check=True,
             stdout=subprocess.PIPE,

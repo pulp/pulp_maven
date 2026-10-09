@@ -110,9 +110,9 @@ def test_metadata_checksums_match_xml(
         checksum_download = download_file(checksum_url)
         assert checksum_download.response_obj.status == 200
         expected = hash_func(metadata_body).hexdigest()
-        assert checksum_download.body.decode().strip() == expected, (
-            f"Checksum mismatch for maven-metadata.xml{ext}"
-        )
+        assert (
+            checksum_download.body.decode().strip() == expected
+        ), f"Checksum mismatch for maven-metadata.xml{ext}"
 
 
 @pytest.mark.parallel
@@ -356,6 +356,7 @@ def test_deploy_api_generates_metadata(
     maven_repo_api_client,
     distribution_base_url,
     pulp_settings,
+    bindings_cfg,
 ):
     """Pushing an artifact via the deploy API auto-generates metadata."""
     import asyncio
@@ -376,7 +377,9 @@ def test_deploy_api_generates_metadata(
     jar_content = b"fake jar content for metadata gen test"
 
     async def _put(url, data):
-        async with aiohttp.ClientSession(raise_for_status=True) as session:
+        # The deploy endpoint authorizes writes, so this has to authenticate.
+        auth = aiohttp.BasicAuth(bindings_cfg.username, bindings_cfg.password)
+        async with aiohttp.ClientSession(raise_for_status=True, auth=auth) as session:
             async with session.put(url, data=data, verify_ssl=False) as resp:
                 return resp.status
 
@@ -712,9 +715,9 @@ def test_index_page_html_downloadable_with_sizes_and_dates(
         repository_version=repo.latest_version_href,
         pulp_type__in=["maven.index-page"],
     )
-    assert index_pages.count > 0, (
-        "No maven.index-page content units found — pre-generation not implemented"
-    )
+    assert (
+        index_pages.count > 0
+    ), "No maven.index-page content units found — pre-generation not implemented"
 
     # Verify the version-level directory is downloadable and contains expected entries.
     # The response must be 200 (inline HTML served by the content app), not a 302 redirect
@@ -730,9 +733,9 @@ def test_index_page_html_downloadable_with_sizes_and_dates(
 
     # Content-Disposition must NOT be 'attachment' (which object-storage redirects add)
     content_disposition = downloaded.response_obj.headers.get("Content-Disposition", "")
-    assert "attachment" not in content_disposition.lower(), (
-        "Content-Disposition: attachment — index page was served as a download, not inline HTML"
-    )
+    assert (
+        "attachment" not in content_disposition.lower()
+    ), "Content-Disposition: attachment — index page was served as a download, not inline HTML"
 
     assert "html-lib-1.0.0.jar" in html, "Artifact filename missing from index page"
     # Size must appear (artifact was uploaded as 64 bytes)
@@ -877,15 +880,15 @@ def test_unaffected_directory_page_unchanged_after_sibling_add(
 
     # Verify HTML: 1.0.0/ directory page is byte-for-byte identical in v1 and v2
     v2_leaf_html = download_file(urljoin(base_url, f"com/{uid}/sel-lib/1.0.0/")).body
-    assert v2_leaf_html == v1_leaf_html, (
-        "com/{uid}/sel-lib/1.0.0/ HTML changed even though no files were added or removed there"
-    )
+    assert (
+        v2_leaf_html == v1_leaf_html
+    ), "com/{uid}/sel-lib/1.0.0/ HTML changed even though no files were added or removed there"
 
     # Verify HTML: sel-lib/ parent page was regenerated and now lists both versions
     v2_parent_html = download_file(urljoin(base_url, f"com/{uid}/sel-lib/")).body
-    assert v2_parent_html != v1_parent_html, (
-        "com/{uid}/sel-lib/ HTML unchanged after adding 2.0.0/ — page was not regenerated"
-    )
+    assert (
+        v2_parent_html != v1_parent_html
+    ), "com/{uid}/sel-lib/ HTML unchanged after adding 2.0.0/ — page was not regenerated"
     assert b"1.0.0/" in v2_parent_html, "1.0.0/ missing from regenerated sel-lib/ page"
     assert b"2.0.0/" in v2_parent_html, "2.0.0/ missing from regenerated sel-lib/ page"
 
@@ -940,12 +943,12 @@ def test_index_page_content_lists_only_direct_children(
     # acc-lib/ lists 1.0.0/ (the subdirectory) but NOT individual files
     parent_html = download_file(urljoin(base_url, f"com/{uid}/acc-lib/")).body.decode()
     assert "1.0.0/" in parent_html, "1.0.0/ subdirectory missing from acc-lib/ page"
-    assert "acc-lib-1.0.0.jar" not in parent_html, (
-        "acc-lib-1.0.0.jar appears in acc-lib/ page — only direct children should be listed"
-    )
-    assert "acc-lib-1.0.0.pom" not in parent_html, (
-        "acc-lib-1.0.0.pom appears in acc-lib/ page — only direct children should be listed"
-    )
+    assert (
+        "acc-lib-1.0.0.jar" not in parent_html
+    ), "acc-lib-1.0.0.jar appears in acc-lib/ page — only direct children should be listed"
+    assert (
+        "acc-lib-1.0.0.pom" not in parent_html
+    ), "acc-lib-1.0.0.pom appears in acc-lib/ page — only direct children should be listed"
 
     # acc-lib/1.0.0/ lists the two files but NOT acc-lib/ as a navigable entry.
     # The parent is only accessible via the standard "../" link; the directory name
@@ -1035,9 +1038,9 @@ def test_index_page_regenerated_on_artifact_removal(
     # The 2.0.0/ directory is now empty → its index page must be gone
     parent_html_after = download_file(urljoin(base_url, f"com/{uid}/rm-lib/")).body
     assert b"1.0.0/" in parent_html_after, "1.0.0/ missing from rm-lib/ page after removal"
-    assert b"2.0.0/" not in parent_html_after, (
-        "2.0.0/ still appears in rm-lib/ page after its artifact was removed"
-    )
+    assert (
+        b"2.0.0/" not in parent_html_after
+    ), "2.0.0/ still appears in rm-lib/ page after its artifact was removed"
 
     # 1.0.0/ page is unchanged — the 2.0.0 removal didn't affect it
     leaf_1_html_after = download_file(urljoin(base_url, f"com/{uid}/rm-lib/1.0.0/")).body
