@@ -8,6 +8,33 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.34.3 (2026-10-09) {: #0.34.3 }
+
+#### Bugfixes {: #0.34.3-bugfix }
+
+- Increased the `Cache-Control` max-age header for path index responses from 0 to 86400 seconds (24 hours) to reduce unnecessary revalidation requests.
+  [#532](https://github.com/pulp/pulp_maven/issues/532)
+
+---
+
+## 0.34.2 (2026-10-09) {: #0.34.2 }
+
+#### Bugfixes {: #0.34.2-bugfix }
+
+- Fixed ``GET .../packages/flat/`` so the OpenAPI schema includes ``limit`` and ``offset``.
+  [#514](https://github.com/pulp/pulp_maven/issues/514)
+
+---
+
+## 0.34.1 (2026-10-08) {: #0.34.1 }
+
+#### Bugfixes {: #0.34.1-bugfix }
+
+- Include the offending relative_path (and content_id) in the path-index InvalidIndex errors raised during repository version finalization, so operators can identify the problematic artifact.
+  [#524](https://github.com/pulp/pulp_maven/issues/524)
+
+---
+
 ## 0.34.0 (2026-10-07) {: #0.34.0 }
 
 #### Features {: #0.34.0-feature }
