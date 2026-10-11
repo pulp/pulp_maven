@@ -776,17 +776,7 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
                 ),
             ),
         ],
-        responses={
-            200: inline_serializer(
-                name="PaginatedMavenRepositoryFlatPackageList",
-                fields={
-                    "count": IntegerField(),
-                    "next": URLField(allow_null=True),
-                    "previous": URLField(allow_null=True),
-                    "results": MavenRepositoryFlatPackageSerializer(many=True),
-                },
-            )
-        },
+        responses={200: MavenRepositoryFlatPackageSerializer(many=True)},
     )
     @action(
         detail=True,

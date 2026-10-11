@@ -1,0 +1,1 @@
+Fixed ``GET .../packages/flat/`` so the OpenAPI schema includes ``limit`` and ``offset``.

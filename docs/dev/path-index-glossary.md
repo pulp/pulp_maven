@@ -224,7 +224,7 @@ Summary and dirty-directory terms describe the independent HTML optimization.
 | Term | Meaning |
 | --- | --- |
 | Auth subrequest / `/auth` | A separate request a CDN can make to an origin service to check access. It appeared in the original design; this integration does not add an `/auth` endpoint. |
-| Cache-Control / revalidation | HTTP instructions for caching responses. `public, max-age=0, must-revalidate` allows storage but requires revalidation before reuse once stale. It does not bypass Pulp's guard check. |
+| Cache-Control / revalidation | HTTP instructions for caching responses. `public, max-age=86400, must-revalidate` allows storage and serves cached responses for up to 24 hours before requiring revalidation. It does not bypass Pulp's guard check. |
 | CDN / Akamai / edge / origin | A content delivery network caches responses near clients at edge servers. Akamai is the CDN discussed for hosted Pulp. The origin is the service contacted when the CDN needs content or authorization. |
 | Conditional request / validator | A request that depends on whether content has changed. ETag and Last-Modified are validators the client can send back to avoid transferring unchanged bytes. |
 | Content-Length / Content-Type / Content-Disposition | Headers describing response byte length, media type, and suggested presentation or download filename. Redirecting a listing to storage can change its presentation. |
