@@ -10,7 +10,7 @@ from redis.exceptions import RedisError
 from pulp_maven.app.bloom import (
     BLOOM_FILTER_KEY_PREFIX,
     get_redis_connection,
-    grown_bloom_filter_capacity,
+    new_bloom_filter_capacity,
 )
 from pulp_maven.tests.functional.utils import download_file
 
@@ -157,7 +157,8 @@ def test_changing_config_rebuilds_filter(
     )
 
     assert _stored_filter_config(repository) != old_filter_config
-    assert _stored_filter_config(repository) == f"2000,{FALSE_POSITIVE_RATE}"
+    version_number = repository.latest_version_href.rstrip("/").rsplit("/", 1)[-1]
+    assert _stored_filter_config(repository) == f"2000,{FALSE_POSITIVE_RATE},{version_number}"
     assert _filter_info(repository).capacity == 2000
     assert _filter_contains(repository, relative_path)
 
@@ -210,7 +211,7 @@ def test_filter_rebuilds_when_content_exceeds_its_size(
         repository.latest_version_href,
     )
     assert new_count > initial_size
-    grown_capacity = grown_bloom_filter_capacity(new_count)
+    grown_capacity = new_bloom_filter_capacity(new_count)
     assert _filter_info(repository).capacity == grown_capacity
     assert repository.pulp_labels[BLOOM_LABEL] == f"{grown_capacity},{FALSE_POSITIVE_RATE}"
     assert _filter_contains(repository, first_path)
