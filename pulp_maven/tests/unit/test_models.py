@@ -154,3 +154,72 @@ class TestBloomFilterUpdates(TestCase):
 
         redis.delete.assert_called_once_with(temporary_key)
         redis.rename.assert_not_called()
+
+
+class TestMavenRemoteExcludeGroupIds(TestCase):
+    """Test group exclusion for pull-through URLs."""
+
+    @staticmethod
+    def remote(*group_ids):
+        from pulp_maven.app.models import MavenRemote
+
+        # An explicit domain id keeps pulpcore from querying the DB for the default domain.
+        return MavenRemote(
+            url="https://repo.example/maven2/",
+            exclude_group_ids=list(group_ids),
+            pulp_domain_id=uuid4(),
+        )
+
+    def test_no_exclusions_returns_url(self):
+        remote = self.remote()
+        url = remote.get_remote_artifact_url("com/a/b/1.0/b-1.0.jar")
+        self.assertEqual(url, "https://repo.example/maven2/com/a/b/1.0/b-1.0.jar")
+
+    def test_excluded_paths_return_none(self):
+        remote = self.remote("com.example")
+        for rel in (
+            "com/example/lib/1.0/lib-1.0.jar",
+            "com/example/lib/1.0/lib-1.0.pom",
+            "com/example/lib/maven-metadata.xml",
+            "com/example/lib/maven-metadata.xml.sha1",
+            "com/example/lib/1.0-SNAPSHOT/maven-metadata.xml.md5",
+            "com/example/sub/deep/lib/1.0/lib-1.0.jar",
+            "com/example",
+        ):
+            self.assertIsNone(remote.get_remote_artifact_url(rel), rel)
+
+    def test_unnormalized_paths_are_still_excluded(self):
+        remote = self.remote("com.example")
+        for rel in (
+            "/com/example/lib/1.0/lib-1.0.jar",
+            "com//example/lib/1.0/lib-1.0.jar",
+            "com/./example/lib/1.0/lib-1.0.jar",
+            "foo/../com/example/lib/1.0/lib-1.0.jar",
+            "com/other/../example/lib/maven-metadata.xml",
+        ):
+            self.assertIsNone(remote.get_remote_artifact_url(rel), rel)
+
+    def test_dotdot_out_of_excluded_group_is_allowed(self):
+        remote = self.remote("com.example")
+        rel = "com/example/../other/lib/1.0/lib-1.0.jar"
+        self.assertIsNotNone(remote.get_remote_artifact_url(rel))
+
+    def test_similar_group_ids_not_excluded(self):
+        remote = self.remote("com.example")
+        for rel in (
+            "com/example2/lib/1.0/lib-1.0.jar",
+            "com/examples/lib/maven-metadata.xml",
+            "com/other/example/lib/1.0/lib-1.0.jar",
+            "org/com/example/lib/1.0/lib-1.0.jar",
+        ):
+            self.assertIsNotNone(remote.get_remote_artifact_url(rel), rel)
+
+    def test_multiple_groups(self):
+        remote = self.remote("com.one", "org.two")
+        self.assertIsNone(remote.get_remote_artifact_url("org/two/x/1/x-1.jar"))
+        self.assertIsNone(remote.get_remote_artifact_url("com/one/x/1/x-1.jar"))
+        self.assertIsNotNone(remote.get_remote_artifact_url("org/three/x/1/x-1.jar"))
+
+    def test_blank_entries_ignored(self):
+        remote = self.remote("", ".")
+        self.assertIsNotNone(remote.get_remote_artifact_url("com/a/b/1/b-1.jar"))
