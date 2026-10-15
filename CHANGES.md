@@ -8,6 +8,24 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.35.0 (2026-10-12) {: #0.35.0 }
+
+#### Features {: #0.35.0-feature }
+
+- Added a ``repair_packages`` action to Maven repositories that reconciles ``MavenPackage`` membership for the latest version: it creates and associates packages for every POM-backed GAV (so previously stranded packages become listed by the ``packages/`` API) and removes packages whose GAV no longer has a POM. The task is idempotent and uses in-memory set diffing plus parallel POM parsing, so it scales to large repositories without hitting database parameter limits.
+  [#508](https://github.com/pulp/pulp_maven/issues/508)
+
+#### Bugfixes {: #0.35.0-bugfix }
+
+- Fixed ``GET .../packages/flat/`` so the OpenAPI schema includes ``limit`` and ``offset``.
+  [#514](https://github.com/pulp/pulp_maven/issues/514)
+- Include the offending relative_path (and content_id) in the path-index InvalidIndex errors raised during repository version finalization, so operators can identify the problematic artifact.
+  [#524](https://github.com/pulp/pulp_maven/issues/524)
+- Increased the `Cache-Control` max-age header for path index responses from 0 to 86400 seconds (24 hours) to reduce unnecessary revalidation requests.
+  [#532](https://github.com/pulp/pulp_maven/issues/532)
+
+---
+
 ## 0.34.3 (2026-10-09) {: #0.34.3 }
 
 #### Bugfixes {: #0.34.3-bugfix }
