@@ -1,4 +1,6 @@
 from django.db import transaction
+from django.db.models import Min, TextField
+from django.db.models.functions import Cast
 from django_filters import CharFilter
 from django_filters.rest_framework import filters as drf_filters
 from drf_spectacular.types import OpenApiTypes
@@ -51,6 +53,11 @@ from pulp_maven.app.models import (
     MavenPackage,
     MavenRemote,
     MavenRepository,
+)
+from pulp_maven.app.pagination import (
+    MavenFlatPackageCursorPagination,
+    MavenPackageCursorPagination,
+    MavenRepositoryVersionCursorPagination,
 )
 from pulp_maven.app.serializers import (
     MavenArtifactSerializer,
@@ -625,10 +632,26 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
         packages. Counting the page queryset would rerun a ``last_updated``
         aggregate when that field is the sort key.
         """
-        paginator = self.paginator
+        if self.request.query_params.get("pagination") == "cursor":
+            if "ordering" in self.request.query_params:
+                raise ValidationError(
+                    {"ordering": "ordering cannot be used with cursor pagination"}
+                )
+            # Cursor ordering is fixed for this experiment. Future work could support
+            # allowlisted orderings by making each ordering part of cursor state.
+            names_qs = names_qs.annotate(
+                _cursor_pk=Min(Cast("pk", output_field=TextField()))
+            ).order_by("_cursor_pk")
+            paginator = MavenPackageCursorPagination()
+            self._cursor_package_paginator = paginator
+        else:
+            paginator = self.paginator
         if paginator is None:
             return None
         count_qs = content_qs.order_by().values("group_id", "artifact_id").distinct()
+        if self.request.query_params.get("pagination") == "cursor":
+            return paginator.paginate_queryset(names_qs, self.request, view=self)
+
         original_get_count = paginator.get_count
 
         def get_count(_queryset):
@@ -684,6 +707,14 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
                     "artifact_id contains the right part. A third ':' segment (version) is "
                     "ignored. Empty or ':' is a no-op. Combines with prefix filters using AND."
                 ),
+            ),
+            OpenApiParameter(
+                name="pagination",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["cursor"],
+                description="Set to cursor for count-free cursor pagination.",
             ),
             OpenApiParameter(
                 name="ordering",
@@ -752,6 +783,8 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
         )
         serializer = self.get_serializer(rows, many=True)
         if page is not None:
+            if getattr(self, "_cursor_package_paginator", None) is not None:
+                return self._cursor_package_paginator.get_paginated_response(serializer.data)
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
 
@@ -777,6 +810,17 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
                     "Defaults to the latest complete version."
                 ),
             ),
+            OpenApiParameter(
+                name="pagination",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["cursor"],
+                description=(
+                    "Set to cursor to opt into count-free cursor pagination. "
+                    "Without this parameter, limit/offset pagination remains unchanged."
+                ),
+            ),
         ],
         responses={200: MavenRepositoryFlatPackageSerializer(many=True)},
     )
@@ -791,12 +835,25 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
         repository = self.get_object()
         repo_version = self._requested_repository_version(repository)
         content_qs = order_flat_packages(maven_packages_in_version(repo_version))
-        page = self.paginate_queryset(content_qs)
+        cursor_paginator = None
+        if request.query_params.get("pagination") == "cursor":
+            if "ordering" in request.query_params:
+                raise ValidationError(
+                    {"ordering": "ordering cannot be used with cursor pagination"}
+                )
+            # Cursor ordering is fixed for this experiment. Future work could support
+            # allowlisted orderings by making each ordering part of cursor state.
+            cursor_paginator = MavenFlatPackageCursorPagination()
+            page = cursor_paginator.paginate_queryset(content_qs, request, view=self)
+        else:
+            page = self.paginate_queryset(content_qs)
         rows = assemble_flat_packages(
             page if page is not None else list(content_qs),
             repo_version,
         )
         serializer = self.get_serializer(rows, many=True)
+        if cursor_paginator is not None:
+            return cursor_paginator.get_paginated_response(serializer.data)
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
@@ -1002,9 +1059,42 @@ class MavenRepositoryViewSet(RepositoryViewSet, ModifyRepositoryActionMixin, Rol
 class MavenRepositoryVersionViewSet(RepositoryVersionViewSet):
     """
     MavenRepositoryVersion represents a single Maven repository version.
+
+    Cursor pagination is a Maven-only pilot. If successful, this behavior should
+    move to pulpcore so repository-version endpoints share one cursor contract
+    across plugins.
     """
 
     parent_viewset = MavenRepositoryViewSet
+
+    def filter_queryset(self, queryset):
+        if self.request.query_params.get("pagination") != "cursor":
+            return super().filter_queryset(queryset)
+        query_params = self.request._request.GET
+        filtered_params = query_params.copy()
+        filtered_params.pop("pagination", None)
+        filtered_params.pop("cursor", None)
+        filtered_params.pop("page_size", None)
+        filtered_params.pop("ordering", None)
+        self.request._request.GET = filtered_params
+        try:
+            return super().filter_queryset(queryset)
+        finally:
+            self.request._request.GET = query_params
+
+    def paginate_queryset(self, queryset):
+        if self.request.query_params.get("pagination") != "cursor":
+            return super().paginate_queryset(queryset)
+        if "ordering" in self.request.query_params:
+            raise ValidationError({"ordering": "ordering cannot be used with cursor pagination"})
+        self._cursor_version_paginator = MavenRepositoryVersionCursorPagination()
+        return self._cursor_version_paginator.paginate_queryset(queryset, self.request, view=self)
+
+    def get_paginated_response(self, data):
+        paginator = getattr(self, "_cursor_version_paginator", None)
+        if paginator is not None:
+            return paginator.get_paginated_response(data)
+        return super().get_paginated_response(data)
 
     DEFAULT_ACCESS_POLICY = {  # noqa: RUF012
         "statements": [
