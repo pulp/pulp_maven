@@ -1,0 +1,1 @@
+LWLP-3265: Add opt-in cursor pagination for Maven package catalog and repository-version endpoints with `pagination=cursor`. Existing limit/offset pagination remains the default. Repository-version support is a Maven-only pilot that may move to pulpcore after validation.
