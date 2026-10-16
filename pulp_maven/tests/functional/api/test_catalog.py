@@ -152,6 +152,47 @@ def test_package_list_grouping_and_pagination(bindings_cfg, catalog_repo, catalo
     assert len(hello["latest_releases"]) == 3
     release_53 = next(rel for rel in hello["latest_releases"] if rel["version"] == "5.3.18")
     assert release_53["release"] == "rhlw-00003"
+
+    path = f"{catalog_repo.pulp_href}packages/"
+    cursor_page = _api_get(bindings_cfg, path, pagination="cursor", page_size=1)
+    assert "count" not in cursor_page
+    assert cursor_page["previous"] is None
+    assert cursor_page["next"]
+    first_cursor_ga = (
+        cursor_page["results"][0]["group_id"],
+        cursor_page["results"][0]["artifact_id"],
+    )
+
+    cursor_next = requests.get(
+        cursor_page["next"], auth=(bindings_cfg.username, bindings_cfg.password)
+    )
+    assert cursor_next.status_code == 200, cursor_next.text
+    cursor_next = cursor_next.json()
+    assert "count" not in cursor_next
+    second_cursor_ga = (
+        cursor_next["results"][0]["group_id"],
+        cursor_next["results"][0]["artifact_id"],
+    )
+    assert second_cursor_ga != first_cursor_ga
+
+    cursor_previous = requests.get(
+        cursor_next["previous"], auth=(bindings_cfg.username, bindings_cfg.password)
+    )
+    assert cursor_previous.status_code == 200, cursor_previous.text
+    cursor_previous = cursor_previous.json()
+    assert (
+        cursor_previous["results"][0]["group_id"],
+        cursor_previous["results"][0]["artifact_id"],
+    ) == first_cursor_ga
+
+    ordering_with_cursor = requests.get(
+        urljoin(bindings_cfg.host + "/", path.lstrip("/")),
+        params={"pagination": "cursor", "ordering": "-artifact_id"},
+        auth=(bindings_cfg.username, bindings_cfg.password),
+    )
+    assert ordering_with_cursor.status_code == 400
+    assert "ordering" in ordering_with_cursor.json()
+
     for rel in hello["latest_releases"]:
         if rel["version"] != "5.3.18":
             assert rel["release"] == ""
@@ -580,6 +621,37 @@ def test_flat_package_list(
     assert page1["results"][0]["version"] == "1.0.0"
     assert page2["results"][0]["version"] == "5.3.18"
 
+    cursor_page = _api_get(bindings_cfg, path, pagination="cursor", page_size=2)
+    assert "count" not in cursor_page
+    assert cursor_page["previous"] is None
+    assert cursor_page["next"]
+    assert len(cursor_page["results"]) == 2
+    first_cursor_versions = [row["version"] for row in cursor_page["results"]]
+    cursor_next = requests.get(
+        cursor_page["next"], auth=(bindings_cfg.username, bindings_cfg.password)
+    )
+    assert cursor_next.status_code == 200, cursor_next.text
+    cursor_next = cursor_next.json()
+    assert "count" not in cursor_next
+    assert len(cursor_next["results"]) == 2
+    assert cursor_next["results"]
+
+    cursor_previous = requests.get(
+        cursor_next["previous"], auth=(bindings_cfg.username, bindings_cfg.password)
+    )
+    assert cursor_previous.status_code == 200, cursor_previous.text
+    cursor_previous = cursor_previous.json()
+    assert [row["version"] for row in cursor_previous["results"]] == first_cursor_versions
+
+    url = urljoin(bindings_cfg.host + "/", path.lstrip("/"))
+    ordering_with_cursor = requests.get(
+        url,
+        params={"pagination": "cursor", "ordering": "-version"},
+        auth=(bindings_cfg.username, bindings_cfg.password),
+    )
+    assert ordering_with_cursor.status_code == 400
+    assert "ordering" in ordering_with_cursor.json()
+
     ignored = _api_get(bindings_cfg, path, search="missing", ordering="nope")
     assert ignored["count"] == 6
     assert [row["version"] for row in ignored["results"]] == [row["version"] for row in rows]
@@ -589,6 +661,25 @@ def test_flat_package_list(
     v0 = _api_get(bindings_cfg, path, repository_version=f"{repo.pulp_href}versions/0/")
     assert v0["count"] == 0
     assert v0["results"] == []
+
+    versions_path = f"{repo.pulp_href}versions/"
+    versions = _api_get(bindings_cfg, versions_path, limit=1)
+    assert "count" in versions
+    cursor_versions = _api_get(bindings_cfg, versions_path, pagination="cursor", page_size=1)
+    assert "count" not in cursor_versions
+    assert cursor_versions["next"]
+    cursor_next = requests.get(
+        cursor_versions["next"], auth=(bindings_cfg.username, bindings_cfg.password)
+    )
+    assert cursor_next.status_code == 200, cursor_next.text
+    assert "count" not in cursor_next.json()
+    ordering_with_cursor = requests.get(
+        urljoin(bindings_cfg.host + "/", versions_path.lstrip("/")),
+        params={"pagination": "cursor", "ordering": "number"},
+        auth=(bindings_cfg.username, bindings_cfg.password),
+    )
+    assert ordering_with_cursor.status_code == 400
+    assert "ordering" in ordering_with_cursor.json()
 
     elsewhere = _add_gavs(
         maven_artifact_api_client,
