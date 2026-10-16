@@ -1,0 +1,1 @@
+Made `InvalidIndex` a `PulpException` subclass so it no longer triggers a pulpcore deprecation warning when raised during task execution.
