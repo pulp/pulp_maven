@@ -1,1 +1,0 @@
-Fixed the Maven deploy API allowing unauthenticated, unauthorized uploads.
