@@ -8,7 +8,12 @@ from pulp_maven.tests.functional.utils import download_file
 
 
 def test_mvn_deploy_workflow(
-    maven_repo_api_client, maven_repo_factory, maven_distribution_factory, tmp_path, pulp_settings
+    maven_repo_api_client,
+    maven_repo_factory,
+    maven_distribution_factory,
+    tmp_path,
+    pulp_settings,
+    bindings_cfg,
 ):
     # Create a repository and distribution pointing to that repository.
     repo = maven_repo_factory()
@@ -37,9 +42,20 @@ def test_mvn_deploy_workflow(
                 f"{tmp_path}/simple-project/pom.xml",
             ]
         )
+        # The deploy API now requires authentication, so provide credentials via a settings.xml
+        # whose <server> id matches the distributionManagement repository id ("pulp") in pom.xml.
+        settings_path = f"{tmp_path}/settings.xml"
+        with open(settings_path, "w") as settings_file:
+            settings_file.write(
+                "<settings><servers><server>"
+                "<id>pulp</id>"
+                f"<username>{bindings_cfg.username}</username>"
+                f"<password>{bindings_cfg.password}</password>"
+                "</server></servers></settings>"
+            )
         # Run mvn deploy
         subprocess.run(
-            ["mvn", "deploy"],
+            ["mvn", "deploy", "-s", settings_path],
             cwd=f"{tmp_path}/simple-project",
             check=True,
             stdout=subprocess.PIPE,
