@@ -368,10 +368,14 @@ def test_deploy_api_generates_metadata(
     base_url = distribution_base_url(distro.base_url)
     uid = _uid()
 
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(bindings_cfg.host)
+    host = f"{parts.scheme}://{parts.netloc}"
     if pulp_settings.DOMAIN_ENABLED:
-        deploy_prefix = f"http://localhost/pulp/maven/default/{repo.name}"
+        deploy_prefix = f"{host}/pulp/maven/default/{repo.name}"
     else:
-        deploy_prefix = f"http://localhost/pulp/maven/{repo.name}"
+        deploy_prefix = f"{host}/pulp/maven/{repo.name}"
 
     jar_path = f"com/{uid}/deployed/1.0.0/deployed-1.0.0.jar"
     jar_content = b"fake jar content for metadata gen test"
