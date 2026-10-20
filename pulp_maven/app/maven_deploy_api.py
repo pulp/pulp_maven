@@ -6,9 +6,10 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
+from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import Throttled
 from rest_framework.response import Response
-from rest_framework.views import APIView
+from rest_framework.viewsets import ViewSet
 
 from pulpcore.plugin.models import Artifact, ContentArtifact
 from pulpcore.plugin.tasking import dispatch
@@ -66,7 +67,7 @@ class PomResponse(Response):
         super().__init__(headers=headers, status=status)
 
 
-class MavenApiViewSet(APIView):
+class MavenApiViewSet(ViewSet):
     """
     ViewSet for interacting with maven deploy API
     """
@@ -76,9 +77,37 @@ class MavenApiViewSet(APIView):
 
     lookup_field = "name"
 
-    # Authentication disabled for now
-    authentication_classes = []
-    permission_classes = []
+    # Authentication and permission classes are intentionally NOT overridden here so that this
+    # endpoint honors the deployment-configured defaults (REST_FRAMEWORK). Authorization is driven
+    # by the access policy below, evaluated by the configured permission class (AccessPolicyFromDB).
+    DEFAULT_ACCESS_POLICY = {  # noqa: RUF012
+        "statements": [
+            {
+                "action": ["retrieve"],
+                "principal": "*",
+                "effect": "allow",
+            },
+            {
+                "action": ["create"],
+                "principal": "authenticated",
+                "effect": "allow",
+                "condition": [
+                    "has_model_or_domain_or_obj_perms:maven.modify_mavenrepository",
+                ],
+            },
+        ],
+    }
+
+    @classmethod
+    def urlpattern(cls):
+        """Mock NamedModelViewSet so this non-model ViewSet participates in RBAC access policies."""
+        return "maven/deploy"
+
+    def get_object(self):
+        """Return the repository addressed by the URL path for object-level permission checks."""
+        return get_object_or_404(
+            MavenRepository, name=self.kwargs["name"], pulp_domain=get_domain()
+        )
 
     def redirect_to_content_app(self, distribution, relative_path, request):
         scheme = request.META.get("HTTP_X_FORWARDED_PROTO", request.scheme)
@@ -118,7 +147,8 @@ class MavenApiViewSet(APIView):
         )
         return attrs
 
-    def get(self, request, name, path):
+    @extend_schema(exclude=True)
+    def retrieve(self, request, name, path):
         """
         Responds to GET requests about manifests by reference
         """
@@ -135,7 +165,8 @@ class MavenApiViewSet(APIView):
         relative_path = content.contentartifact_set.get().relative_path
         return self.redirect_to_content_app(distro, relative_path, request)
 
-    def put(self, request, name, path):
+    @extend_schema(exclude=True)
+    def create(self, request, name, path):
         repo, distro = self.get_repository_and_distributions(name)
 
         # Determine if this is an artifact or metadata

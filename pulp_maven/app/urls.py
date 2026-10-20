@@ -9,5 +9,7 @@ else:
     path_re = r"(?P<name>[\w-]+)/(?P<path>.*)"
 
 urlpatterns = [
-    re_path(rf"^pulp/maven/{path_re}$", MavenApiViewSet.as_view()),
+    re_path(
+        rf"^pulp/maven/{path_re}$", MavenApiViewSet.as_view({"get": "retrieve", "put": "create"})
+    ),
 ]
