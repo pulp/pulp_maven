@@ -356,6 +356,7 @@ def test_deploy_api_generates_metadata(
     maven_repo_api_client,
     distribution_base_url,
     pulp_settings,
+    bindings_cfg,
 ):
     """Pushing an artifact via the deploy API auto-generates metadata."""
     import asyncio
@@ -367,17 +368,23 @@ def test_deploy_api_generates_metadata(
     base_url = distribution_base_url(distro.base_url)
     uid = _uid()
 
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(bindings_cfg.host)
+    host = f"{parts.scheme}://{parts.netloc}"
     if pulp_settings.DOMAIN_ENABLED:
-        deploy_prefix = f"http://localhost/pulp/maven/default/{repo.name}"
+        deploy_prefix = f"{host}/pulp/maven/default/{repo.name}"
     else:
-        deploy_prefix = f"http://localhost/pulp/maven/{repo.name}"
+        deploy_prefix = f"{host}/pulp/maven/{repo.name}"
 
     jar_path = f"com/{uid}/deployed/1.0.0/deployed-1.0.0.jar"
     jar_content = b"fake jar content for metadata gen test"
 
+    auth = aiohttp.BasicAuth(bindings_cfg.username, bindings_cfg.password)
+
     async def _put(url, data):
         async with aiohttp.ClientSession(raise_for_status=True) as session:
-            async with session.put(url, data=data, verify_ssl=False) as resp:
+            async with session.put(url, data=data, verify_ssl=False, auth=auth) as resp:
                 return resp.status
 
     status = asyncio.run(_put(f"{deploy_prefix}/{jar_path}", jar_content))

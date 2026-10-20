@@ -2,7 +2,17 @@
 
 from collections import defaultdict
 
-from django.db.models import CharField, FilteredRelation, Func, Max, OuterRef, Q, Subquery, Value
+from django.db.models import (
+    Aggregate,
+    CharField,
+    FilteredRelation,
+    Func,
+    Max,
+    OuterRef,
+    Q,
+    Subquery,
+    Value,
+)
 from django.db.models.functions import Coalesce, Collate
 
 from pulpcore.plugin.models import RepositoryContent
@@ -328,6 +338,13 @@ def assemble_package_index(content_qs, ga_rows, repository_version):
     return result
 
 
+class CountDistinctTuple(Aggregate):
+    """Count distinct tuples using PostgreSQL's row-valued DISTINCT syntax."""
+
+    function = "COUNT"
+    template = "%(function)s(DISTINCT (%(expressions)s))"
+
+
 def repository_metrics(content_qs):
     """Distinct package / logical-version / build counts for MavenPackage.
 
@@ -338,14 +355,13 @@ def repository_metrics(content_qs):
       after rebuild-suffix strip
     * ``build_count``: distinct ``(group_id, artifact_id, version)`` (full GAV)
     """
-    content_qs = content_qs.order_by()
-    return {
-        "package_count": content_qs.values("group_id", "artifact_id").distinct().count(),
-        "version_count": (
-            content_qs.annotate(_base_version=base_version_annotation())
-            .values("group_id", "artifact_id", "_base_version")
-            .distinct()
-            .count()
-        ),
-        "build_count": content_qs.values("group_id", "artifact_id", "version").distinct().count(),
-    }
+    counts = (
+        content_qs.order_by()
+        .annotate(_base_version=base_version_annotation())
+        .aggregate(
+            package_count=CountDistinctTuple("group_id", "artifact_id"),
+            version_count=CountDistinctTuple("group_id", "artifact_id", "_base_version"),
+            build_count=CountDistinctTuple("group_id", "artifact_id", "version"),
+        )
+    )
+    return counts
