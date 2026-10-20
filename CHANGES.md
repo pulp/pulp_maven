@@ -8,6 +8,20 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.36.0 (2026-10-20) {: #0.36.0 }
+
+#### Features {: #0.36.0-feature }
+
+- LWLP-3265: Add opt-in cursor pagination for Maven package catalog and repository-version endpoints with `pagination=cursor`. Existing limit/offset pagination remains the default. Repository-version support is a Maven-only pilot that may move to pulpcore after validation.
+  [#900](https://github.com/pulp/pulp_maven/issues/900)
+
+#### Bugfixes {: #0.36.0-bugfix }
+
+- Fixed the Maven deploy API allowing unauthenticated, unauthorized uploads.
+  [#528](https://github.com/pulp/pulp_maven/issues/528)
+
+---
+
 ## 0.35.0 (2026-10-12) {: #0.35.0 }
 
 #### Features {: #0.35.0-feature }
