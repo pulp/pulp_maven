@@ -50,9 +50,7 @@ def main():
                     req = Requirement(line)
                 except ValueError:
                     if line.startswith("git+"):
-                        # The single exception...
-                        if "pulp-smash" not in line:
-                            errors.append(f"{filename}:{nr}: Invalid source requirement: {line}")
+                        errors.append(f"{filename}:{nr}: Invalid source requirement: {line}")
                     elif line.startswith("-r "):
                         if check_r:
                             errors.append(f"{filename}:{nr}: Invalid deferred requirement: {line}")
