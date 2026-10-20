@@ -5,6 +5,7 @@ import uuid
 from urllib.parse import urljoin
 from xml.etree import ElementTree
 
+import aiohttp
 import pytest
 
 from pulp_maven.tests.functional.utils import download_file
@@ -391,6 +392,61 @@ def test_repair_metadata_removes_orphaned_metadata(
     assert maven_metadata_api_client.list(repository_version=repo.latest_version_href).count == 0, (
         "Orphaned metadata should be removed after repair"
     )
+
+
+@pytest.mark.parallel
+def test_repair_metadata_updates_index_pages(
+    populated_repo,
+    maven_metadata_api_client,
+    maven_repo_api_client,
+    monitor_task,
+    tmp_path,
+):
+    """Directory listings follow the metadata that repair_metadata removes and restores.
+
+    The orphaned metadata is the only content of ``orphanlib/``, so removing it must
+    leave no page for that directory and no ``orphanlib/`` entry in its parent. The
+    restored ``repairlib`` metadata must appear in the ``repairlib/`` listing.
+    """
+    repo, base_url, uid = populated_repo([("com", "repairlib", ["1.0.0"])])
+
+    orphan_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f"<metadata><groupId>com.{uid}</groupId>"
+        "<artifactId>orphanlib</artifactId>"
+        "<versioning><versions><version>1.0.0</version></versions></versioning></metadata>\n"
+    )
+    orphan_file = tmp_path / "maven-metadata.xml"
+    orphan_file.write_text(orphan_xml)
+    orphan_metadata = maven_metadata_api_client.upload(
+        relative_path=f"com/{uid}/orphanlib/maven-metadata.xml",
+        file=str(orphan_file),
+    )
+    monitor_task(
+        maven_repo_api_client.modify(
+            repo.pulp_href, {"add_content_units": [orphan_metadata.pulp_href]}
+        ).task
+    )
+
+    group_url = urljoin(base_url, f"com/{uid}/")
+    orphan_dir_url = urljoin(base_url, f"com/{uid}/orphanlib/")
+    lib_dir_url = urljoin(base_url, f"com/{uid}/repairlib/")
+    assert 'href="./orphanlib/"' in download_file(group_url).body.decode()
+    assert 'href="./maven-metadata.xml"' in download_file(orphan_dir_url).body.decode()
+    assert 'href="./maven-metadata.xml"' not in download_file(lib_dir_url).body.decode()
+
+    monitor_task(maven_repo_api_client.repair_metadata(repo.pulp_href).task)
+
+    group_html = download_file(group_url).body.decode()
+    assert 'href="./repairlib/"' in group_html
+    assert 'href="./orphanlib/"' not in group_html, "orphanlib/ is listed after it emptied"
+    with pytest.raises(aiohttp.ClientResponseError) as exc:
+        download_file(orphan_dir_url)
+    assert exc.value.status == 404, "orphanlib/ still serves a listing after it became empty"
+
+    lib_html = download_file(lib_dir_url).body.decode()
+    assert 'href="./1.0.0/"' in lib_html
+    assert 'href="./maven-metadata.xml"' in lib_html, "restored metadata is not listed"
 
 
 @pytest.mark.parallel
@@ -930,3 +986,29 @@ def test_repair_index_pages_domain_context(
             f"'{stored_path}' — "
             f"expected prefix '{expected_prefix}' (issue #468)."
         )
+
+
+@pytest.mark.parallel
+def test_repair_index_pages_removes_pages_without_content(
+    stale_index_page_repo,
+    maven_bindings,
+    maven_repo_api_client,
+    monitor_task,
+):
+    """repair_index_pages drops every page when the repository has no other content."""
+    repo, base_url, uid, _ = stale_index_page_repo()
+    directories = ("", "com/", f"com/{uid}/")
+    for directory in directories:
+        assert download_file(urljoin(base_url, directory)).response_obj.status == 200
+
+    monitor_task(maven_repo_api_client.repair_index_pages(repo.pulp_href).task)
+
+    repo = maven_repo_api_client.read(repo.pulp_href)
+    pages = maven_bindings.ContentMavenIndexPageApi.list(
+        repository_version=repo.latest_version_href
+    )
+    assert pages.count == 0, f"pages left: {[p.path for p in pages.results]}"
+    for directory in directories:
+        with pytest.raises(aiohttp.ClientResponseError) as exc:
+            download_file(urljoin(base_url, directory))
+        assert exc.value.status == 404, f"{directory!r} still serves a listing in an empty repo"

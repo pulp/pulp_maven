@@ -11,4 +11,5 @@ from pulp_maven.tests.functional.conftest import (  # noqa: F401
     maven_repo_api_client,
     maven_repo_factory,
     pom_file_factory,
+    stale_index_page_repo,
 )
