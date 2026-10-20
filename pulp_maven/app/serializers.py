@@ -38,13 +38,22 @@ class MavenArtifactSerializer(platform.SingleArtifactContentUploadSerializer):
         help_text=_("Version of the artifact's package."), read_only=True
     )
     filename = serializers.CharField(help_text=_("Filename of the artifact."), read_only=True)
+    sha256 = serializers.CharField(
+        help_text=_("Checksum of the artifact's file, which distinguishes re-uploads."),
+        read_only=True,
+    )
 
     def retrieve(self, validated_data):
+        # Matching on coordinates alone returned the existing unit for an upload
+        # carrying different content, so the upload reported success and changed
+        # nothing. Include the checksum so only a genuinely identical upload is
+        # treated as already present.
         return models.MavenArtifact.objects.filter(
             group_id=validated_data["group_id"],
             artifact_id=validated_data["artifact_id"],
             version=validated_data["version"],
             filename=validated_data["filename"],
+            sha256=validated_data.get("sha256", ""),
             pulp_domain=get_domain_pk(),
         ).first()
 
@@ -57,6 +66,11 @@ class MavenArtifactSerializer(platform.SingleArtifactContentUploadSerializer):
         validated_data["version"] = version
         validated_data["filename"] = filename
         artifact = validated_data.get("artifact")
+        # Set before delegating: the base class pops the artifact out of
+        # validated_data before it consults `retrieve`, so the checksum has to be
+        # carried as a field of its own by then.
+        if artifact is not None:
+            validated_data["sha256"] = artifact.sha256
         content = super().create(validated_data)
 
         if filename.endswith(".pom") and artifact:
@@ -78,6 +92,7 @@ class MavenArtifactSerializer(platform.SingleArtifactContentUploadSerializer):
             "artifact_id",
             "version",
             "filename",
+            "sha256",
         )
         model = models.MavenArtifact
 
@@ -147,7 +162,7 @@ class MavenMetadataSerializer(platform.SingleArtifactContentUploadSerializer):
 
     def retrieve(self, validated_data):
         return models.MavenMetadata.objects.filter(
-            sha256=validated_data["sha256"],
+            sha256=validated_data.get("sha256", ""),
             pulp_domain=get_domain_pk(),
         ).first()
 

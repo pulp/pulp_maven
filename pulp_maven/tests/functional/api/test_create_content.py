@@ -251,7 +251,13 @@ def test_upload_duplicate_maven_artifact(
     maven_artifact_api_client,
     random_artifact_factory,
 ):
-    """Test that uploading a duplicate Maven artifact returns the existing content unit."""
+    """Uploading the same coordinates again resolves by content, not by path alone.
+
+    Re-uploading identical content is idempotent and returns the existing unit.
+    Uploading different content under the same coordinates produces a distinct
+    unit: returning the existing one would mean accepting the upload and
+    discarding it, which is indistinguishable from success to the caller.
+    """
     artifact = random_artifact_factory(size=64)
     filename = "duplicate-test-1.0.0.jar"
     relative_path = f"com/example/duplicate-test/1.0.0/{filename}"
@@ -262,14 +268,21 @@ def test_upload_duplicate_maven_artifact(
     )
     assert first.pulp_href is not None
 
-    # Upload again with same relative_path but different artifact content
+    # Same coordinates, same content -> the same unit.
+    same = maven_artifact_api_client.upload(
+        artifact=artifact.pulp_href,
+        relative_path=relative_path,
+    )
+    assert same.pulp_href == first.pulp_href
+
+    # Same coordinates, different content -> a distinct unit.
     artifact2 = random_artifact_factory(size=64)
     second = maven_artifact_api_client.upload(
         artifact=artifact2.pulp_href,
         relative_path=relative_path,
     )
 
-    assert second.pulp_href == first.pulp_href
+    assert second.pulp_href != first.pulp_href
 
 
 @pytest.mark.parallel
