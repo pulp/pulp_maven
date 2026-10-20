@@ -28,6 +28,19 @@ def _deploy_url(deploy_base, repo_name, pulp_settings, rel_path):
     return f"{deploy_base}/pulp/maven/{prefix}{repo_name}/{rel_path}"
 
 
+def _anonymous_request(method, url, **kwargs):
+    """Issue a request with NO credentials.
+
+    requests reads ~/.netrc by default, and the CI runner has admin credentials
+    there — so a plain requests.put() is silently authenticated as admin. A session
+    with trust_env=False ignores ~/.netrc (and proxy env), keeping the request truly
+    unauthenticated.
+    """
+    session = requests.Session()
+    session.trust_env = False
+    return session.request(method, url, verify=False, **kwargs)
+
+
 @pytest.mark.parallel
 def test_anonymous_put_returns_401_with_basic_challenge(
     deploy_base, maven_repo_factory, maven_distribution_factory, pulp_settings
@@ -36,7 +49,7 @@ def test_anonymous_put_returns_401_with_basic_challenge(
     repo = maven_repo_factory()
     maven_distribution_factory(repository=repo.pulp_href)
     url = _deploy_url(deploy_base, repo.name, pulp_settings, f"com/ex/{uuid.uuid4()}/1.0/a-1.0.jar")
-    resp = requests.put(url, data=b"content", verify=False)
+    resp = _anonymous_request("PUT", url, data=b"content")
     assert resp.status_code == 401
     assert resp.headers.get("WWW-Authenticate", "").lower().startswith("basic")
 
@@ -98,5 +111,5 @@ def test_anonymous_get_is_not_auth_gated(
     repo = maven_repo_factory()
     maven_distribution_factory(repository=repo.pulp_href)
     url = _deploy_url(deploy_base, repo.name, pulp_settings, "com/ex/missing/1.0/missing-1.0.jar")
-    resp = requests.get(url, allow_redirects=False, verify=False)
+    resp = _anonymous_request("GET", url, allow_redirects=False)
     assert resp.status_code == 404
