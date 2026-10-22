@@ -65,6 +65,22 @@ The commands below use the `pulp-cli-maven` package available on PyPI.
     }
     ```
 
+### Excluding groupIds from the upstream
+
+Set `exclude_group_ids` to keep private or internal groupIds from ever being requested from the
+upstream, for example to avoid leaking internal names or dependency-confusion attacks. Subgroups
+are excluded too (`com.example` also covers `com.example.sub`, but not `com.example2`).
+
+Content under an excluded group that is already in the repository is still served. Anything else
+returns `404` without contacting the upstream. Only pull-through is affected: uploads through the
+deploy API are not restricted.
+
+```bash
+http PATCH "${BASE_ADDR}${REMOTE_HREF}" exclude_group_ids:='["com.example", "org.internal"]'
+```
+
+Each entry must be a dotted groupId made of letters, digits, `_` and `-`.
+
 ## 2. Create a Maven Repository
 
 The repository will be used to store cached content. When content is fetched via pull-through
