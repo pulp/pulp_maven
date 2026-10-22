@@ -7,7 +7,7 @@ from os import path
 
 from django.contrib.postgres.indexes import GinIndex
 from django.db import IntegrityError, connection, models, transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django_lifecycle import AFTER_CREATE, AFTER_DELETE, AFTER_UPDATE, hook
 
 from pulpcore.plugin.models import (
@@ -522,7 +522,11 @@ class MavenDistribution(Distribution, AutoAddObjPermsMixin):
                 return None
 
             has_index = ContentArtifact.objects.filter(
-                content__in=version.content,
+                Exists(
+                    version._content_relationships().filter(
+                        content_id=OuterRef("content_id")
+                    )
+                ),
                 content__pulp_type="maven.index-page",
                 relative_path=f"{path}/index.html",
             ).exists()
@@ -536,7 +540,11 @@ class MavenDistribution(Distribution, AutoAddObjPermsMixin):
         index_rel_path = f"{path}index.html"
         ca = (
             ContentArtifact.objects.filter(
-                content__in=version.content,
+                Exists(
+                    version._content_relationships().filter(
+                        content_id=OuterRef("content_id")
+                    )
+                ),
                 content__pulp_type="maven.index-page",
                 relative_path=index_rel_path,
             )
