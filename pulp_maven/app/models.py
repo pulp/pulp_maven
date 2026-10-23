@@ -522,11 +522,7 @@ class MavenDistribution(Distribution, AutoAddObjPermsMixin):
                 return None
 
             has_index = ContentArtifact.objects.filter(
-                Exists(
-                    version._content_relationships().filter(
-                        content_id=OuterRef("content_id")
-                    )
-                ),
+                Exists(version._content_relationships().filter(content_id=OuterRef("content_id"))),
                 content__pulp_type="maven.index-page",
                 relative_path=f"{path}/index.html",
             ).exists()
@@ -540,11 +536,7 @@ class MavenDistribution(Distribution, AutoAddObjPermsMixin):
         index_rel_path = f"{path}index.html"
         ca = (
             ContentArtifact.objects.filter(
-                Exists(
-                    version._content_relationships().filter(
-                        content_id=OuterRef("content_id")
-                    )
-                ),
+                Exists(version._content_relationships().filter(content_id=OuterRef("content_id"))),
                 content__pulp_type="maven.index-page",
                 relative_path=index_rel_path,
             )
