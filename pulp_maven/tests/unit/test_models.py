@@ -24,6 +24,48 @@ def repository_with_config(value=None):
     return SimpleNamespace(pulp_id=uuid4(), pulp_labels=labels, name="test")
 
 
+class TestMavenIndexMembershipQuery(TestCase):
+    def test_index_lookup_uses_repository_membership_exists(self):
+        import django
+
+        django.setup()
+        from pulp_maven.app.models import MavenDistribution
+
+        with (
+            patch(
+                "pulp_maven.app.path_index.content.indexed_response",
+                return_value=None,
+            ),
+            patch(
+                "pulp_maven.app.models.bloom_filter_might_contain",
+                return_value=True,
+            ),
+            patch("pulpcore.plugin.models.ContentArtifact") as content_artifact,
+        ):
+            repository_memberships = Mock()
+            version = SimpleNamespace(
+                _content_relationships=Mock(return_value=repository_memberships)
+            )
+            repository = SimpleNamespace(latest_version=Mock(return_value=version))
+            distribution = SimpleNamespace(
+                repository_version_id=None,
+                repository_id=uuid4(),
+                remote_id=None,
+                repository=repository,
+            )
+            content_artifact.objects.filter.return_value.exists.return_value = False
+
+            result = MavenDistribution.content_handler(distribution, "com/example/pkg")
+
+            self.assertIsNone(result)
+            repository_memberships.filter.assert_called_once()
+            content_artifact.objects.filter.assert_called_once()
+            args, kwargs = content_artifact.objects.filter.call_args
+            self.assertEqual(kwargs["relative_path"], "com/example/pkg/index.html")
+            self.assertEqual(kwargs["content__pulp_type"], "maven.index-page")
+            self.assertEqual(args[0].__class__.__name__, "Exists")
+
+
 class TestNothing(TestCase):
     """Test Nothing (placeholder)."""
 
