@@ -161,7 +161,7 @@ class MavenMetadata(MavenContentMixin, Content):
     artifact_id = models.CharField(max_length=255, null=False)
     version = models.CharField(max_length=255, null=True)
     filename = models.CharField(max_length=255, null=False)
-    sha256 = models.CharField(max_length=64, null=False, unique=True, db_index=True)
+    sha256 = models.CharField(max_length=64, null=False, db_index=True)
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
