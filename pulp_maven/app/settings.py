@@ -8,3 +8,7 @@ MAVEN_PATH_INDEX_MAX_VIEWS = 8
 MAVEN_PATH_INDEX_REFRESH_SECONDS = 2
 # Match a hosted deployment's existing large-file redirect policy when configured.
 MAVEN_PATH_INDEX_REDIRECT_THRESHOLD = None
+
+# How long a deploy request waits, in seconds, for its turn to add the uploaded file to the
+# repository while other deploys to the same repository go first. After that it answers 429.
+MAVEN_DEPLOY_TASK_TIMEOUT = 30

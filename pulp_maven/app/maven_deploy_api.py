@@ -1,5 +1,6 @@
 import hashlib
 import re
+import time
 from tempfile import NamedTemporaryFile
 
 from django.conf import settings
@@ -11,6 +12,7 @@ from rest_framework.exceptions import Throttled
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
+from pulpcore.plugin.constants import TASK_FINAL_STATES, TASK_STATES
 from pulpcore.plugin.models import Artifact, ContentArtifact
 from pulpcore.plugin.tasking import dispatch
 from pulpcore.plugin.util import get_domain
@@ -27,20 +29,36 @@ from pulp_maven.app.tasks import aadd_and_remove
 
 def has_task_completed(task):
     """
-    Verify whether an immediate task ran properly.
+    Wait for a dispatched task to finish and report how it ended.
+
+    The task runs right away when no other task holds the repository. Otherwise it waits in the
+    queue for a worker, and the upload waits with it for up to MAVEN_DEPLOY_TASK_TIMEOUT
+    seconds, so concurrent deploys to one repository take turns instead of being refused.
 
     Returns:
         bool: True if the task ended successfully.
 
     Raises:
         Exception: If an error occured during the task's runtime.
-        Throttled: If the task did not run due to resource constraints.
+        Throttled: If the task was canceled or did not finish within the timeout.
 
     """
-    if task.state == "completed":
+    timeout = settings.MAVEN_DEPLOY_TASK_TIMEOUT
+    deadline = time.monotonic() + timeout
+    delay = 0.05
+    while task.state not in TASK_FINAL_STATES:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            # The task stays queued and still adds the content; a retried upload of the same
+            # file replaces it.
+            raise Throttled(wait=timeout)
+        time.sleep(min(delay, remaining))
+        delay = min(delay * 2, 1)
+        task.refresh_from_db()
+    if task.state == TASK_STATES.COMPLETED:
         task.delete()
         return True
-    elif task.state == "canceled":
+    elif task.state == TASK_STATES.CANCELED:
         raise Throttled()
     else:
         error = task.error
@@ -236,7 +254,7 @@ class MavenApiViewSet(ViewSet):
             aadd_and_remove,
             exclusive_resources=[repo],
             immediate=True,
-            deferred=False,
+            deferred=True,
             kwargs={
                 "repository_pk": str(repo.pk),
                 "add_content_units": add_content_units,
