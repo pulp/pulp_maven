@@ -1,0 +1,1 @@
+Fixed a crash in multi-domain setups where `_save_prefixes_txt` and `_save_metadata_content` raised `MavenMetadata.DoesNotExist` when two domains produced metadata with identical content (same sha256). The global `unique=True` constraint on `MavenMetadata.sha256` has been replaced with a domain-scoped uniqueness via the existing `unique_together` constraint.
