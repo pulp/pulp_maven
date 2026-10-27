@@ -24,6 +24,108 @@ def repository_with_config(value=None):
     return SimpleNamespace(pulp_id=uuid4(), pulp_labels=labels, name="test")
 
 
+class TestMavenContentHandlerFallback(TestCase):
+    def _make_distribution(self, version):
+        repository = SimpleNamespace(latest_version=Mock(return_value=version))
+        return SimpleNamespace(
+            repository_version_id=None,
+            repository_id=uuid4(),
+            remote_id=None,
+            repository=repository,
+        )
+
+    def test_missing_index_page_falls_through_after_index_unavailable(self):
+        """A missing custom Maven page returns None for pulpcore's fallback handler."""
+        import django
+
+        django.setup()
+        from pulpcore.plugin.models import RepositoryVersion
+
+        from pulp_maven.app.models import MavenDistribution
+
+        version = RepositoryVersion(repository_id=uuid4(), number=1)
+        distribution = self._make_distribution(version)
+        with (
+            patch(
+                "pulp_maven.app.path_index.content.indexed_response",
+                return_value=None,
+            ),
+            patch(
+                "pulp_maven.app.models.bloom_filter_might_contain",
+                return_value=True,
+            ),
+            patch("pulpcore.plugin.models.ContentArtifact") as content_artifact,
+            patch.object(version, "get_content", return_value=Mock()) as get_content,
+        ):
+            content_artifact.objects.filter.return_value.exists.return_value = False
+
+            result = MavenDistribution.content_handler(distribution, "com/example/pkg")
+
+        self.assertIsNone(result)
+        get_content.assert_called_once_with()
+        content_artifact.objects.filter.assert_called_once()
+
+    def test_trailing_slash_missing_index_page_falls_through(self):
+        """A missing inline Maven page returns None for pulpcore's fallback handler."""
+        import django
+
+        django.setup()
+        from pulpcore.plugin.models import RepositoryVersion
+
+        from pulp_maven.app.models import MavenDistribution
+
+        version = RepositoryVersion(repository_id=uuid4(), number=1)
+        distribution = self._make_distribution(version)
+        with (
+            patch(
+                "pulp_maven.app.path_index.content.indexed_response",
+                return_value=None,
+            ),
+            patch(
+                "pulp_maven.app.models.bloom_filter_might_contain",
+                return_value=True,
+            ),
+            patch("pulpcore.plugin.models.ContentArtifact") as content_artifact,
+            patch.object(version, "get_content", return_value=Mock()) as get_content,
+        ):
+            content_artifact.objects.filter.return_value.select_related.return_value.first.return_value = None
+
+            result = MavenDistribution.content_handler(distribution, "com/example/pkg/")
+
+        self.assertIsNone(result)
+        get_content.assert_called_once_with()
+        content_artifact.objects.filter.assert_called_once()
+
+    def test_dotted_file_falls_through_without_maven_index_lookup(self):
+        """Dotted file paths skip Maven's index-page lookup for pulpcore."""
+        import django
+
+        django.setup()
+        from pulpcore.plugin.models import RepositoryVersion
+
+        from pulp_maven.app.models import MavenDistribution
+
+        version = RepositoryVersion(repository_id=uuid4(), number=1)
+        distribution = self._make_distribution(version)
+        with (
+            patch(
+                "pulp_maven.app.path_index.content.indexed_response",
+                return_value=None,
+            ),
+            patch(
+                "pulp_maven.app.models.bloom_filter_might_contain",
+                return_value=True,
+            ),
+            patch("pulpcore.plugin.models.ContentArtifact") as content_artifact,
+            patch.object(version, "get_content", return_value=Mock()) as get_content,
+        ):
+            result = MavenDistribution.content_handler(distribution, "com/example/pkg.jar")
+
+        self.assertIsNone(result)
+        get_content.assert_not_called()
+        content_artifact.objects.filter.assert_not_called()
+
+
 class TestNothing(TestCase):
     """Test Nothing (placeholder)."""
 
