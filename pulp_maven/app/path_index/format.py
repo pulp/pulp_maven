@@ -5,6 +5,9 @@ import mmap
 import struct
 from dataclasses import dataclass
 
+# Re-exported for the path_index modules that do `from .format import InvalidIndex`.
+from pulp_maven.app.exceptions import InvalidIndex
+
 BASE_MAGIC = b"PULPXIDX"
 DELTA_MAGIC = b"PULPXDLT"
 FORMAT_VERSION = 1
@@ -12,10 +15,6 @@ HEADER = struct.Struct(">8sB7s")
 COUNTS = struct.Struct(">QQ")
 RECORD = struct.Struct(">16s32sQq")
 HASH_SIZE = 16
-
-
-class InvalidIndex(ValueError):
-    """The file cannot establish either presence or absence of a path."""
 
 
 def path_hash(path):
