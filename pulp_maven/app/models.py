@@ -5,6 +5,7 @@ from gettext import gettext as _
 from logging import getLogger
 from os import path
 
+from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.db import IntegrityError, connection, models, transaction
 from django.db.models import Exists, OuterRef, Q
@@ -12,6 +13,7 @@ from django_lifecycle import AFTER_CREATE, AFTER_DELETE, AFTER_UPDATE, hook
 
 from pulpcore.plugin.models import (
     AutoAddObjPermsMixin,
+    BaseModel,
     Content,
     Distribution,
     Remote,
@@ -32,6 +34,8 @@ logger = getLogger(__name__)
 # Pull-through tasks run asynchronously from the content app; any extra work in
 # finalize_new_version delays version creation and races with subsequent reads.
 _pull_through_ctx = threading.local()
+# Set while a batch of deployed files is being added (see commit_pending_deploys).
+_deploy_batch_ctx = threading.local()
 
 
 class MavenContentMixin:
@@ -459,12 +463,68 @@ class MavenRemote(Remote, AutoAddObjPermsMixin):
         ]
 
 
+class MavenPendingDeploy(BaseModel):
+    """A deployed file waiting to be added to its repository.
+
+    With ``MAVEN_DEPLOY_BATCH`` on, the deploy API stores the file and its content unit and
+    records it here instead of creating a repository version for it. A commit task then adds
+    everything that is pending for the repository in one version, so a publish of many files
+    costs a few versions rather than one per file.
+
+    Fields:
+        relative_path (models.TextField): Where the file is served from, so that a later
+            deploy of the same path within one batch replaces an earlier one.
+
+    Relations:
+        repository (MavenRepository): The repository the file was deployed to.
+        content (pulpcore.plugin.models.Content): The deployed content unit.
+    """
+
+    repository = models.ForeignKey(
+        "MavenRepository", on_delete=models.CASCADE, related_name="pending_deploys"
+    )
+    content = models.ForeignKey(Content, on_delete=models.CASCADE, related_name="+")
+    relative_path = models.TextField()
+
+    class Meta:
+        default_related_name = "%(app_label)s_%(model_name)s"
+        indexes = [
+            models.Index(fields=["repository", "pulp_created"]),
+            models.Index(fields=["repository", "relative_path"]),
+        ]
+
+
 class MavenDistribution(Distribution, AutoAddObjPermsMixin):
     """
     Distribution for 'maven' content.
     """
 
     TYPE = "maven"
+
+    def _pending_content_artifact(self, path):
+        """Return the newest deployed file at ``path`` that is still waiting for its batch.
+
+        Serving it makes a deployed file readable as soon as its upload is answered, as when
+        every file got its own version, so a build that publishes and then resolves at once
+        does not see a 404 in between.
+        """
+        if not settings.MAVEN_DEPLOY_BATCH or not self.repository_id or self.repository_version_id:
+            return None
+        from pulpcore.plugin.models import ContentArtifact
+
+        content_id = (
+            MavenPendingDeploy.objects.filter(repository_id=self.repository_id, relative_path=path)
+            .order_by("-pulp_created")
+            .values_list("content_id", flat=True)
+            .first()
+        )
+        if content_id is None:
+            return None
+        return (
+            ContentArtifact.objects.select_related("artifact")
+            .filter(content_id=content_id, relative_path=path)
+            .first()
+        )
 
     def content_handler(self, path):
         """Serve pre-generated HTML index pages inline, bypassing redirect-to-object-storage.
@@ -484,6 +544,10 @@ class MavenDistribution(Distribution, AutoAddObjPermsMixin):
         from pulpcore.plugin.models import ContentArtifact
 
         from pulp_maven.app.path_index.content import indexed_response
+
+        pending = self._pending_content_artifact(path)
+        if pending is not None:
+            return pending
 
         response = indexed_response(self, path)
         if response is not None:
@@ -968,25 +1032,47 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
         for group_id, artifact_id in affected_pairs:
             pairs_q |= Q(group_id=group_id, artifact_id=artifact_id)
 
-        stale_pks = list(
-            MavenMetadata.objects.filter(
-                pk__in=new_version.content,
-                version=None,
-                filename__in=METADATA_FILENAMES,
-            )
-            .filter(pairs_q)
-            .values_list("pk", flat=True)
-        )
-        changes.to_remove.update(stale_pks)
+        # A batch of deploys that carries the client's own maven-metadata.xml for a pair, or
+        # for a snapshot version, keeps it. Each file in its own version would have left the
+        # same result: the client uploads its metadata after the files, in a version without
+        # artifacts, which is not regenerated. The client's metadata can also say more than
+        # the generated one, for example which timestamped build a SNAPSHOT resolves to.
+        client_pairs, client_triples = set(), set()
+        if getattr(_deploy_batch_ctx, "active", False):
+            for group_id, artifact_id, version in MavenMetadata.objects.filter(
+                pk__in=new_version.added(), filename="maven-metadata.xml"
+            ).values_list("group_id", "artifact_id", "version"):
+                if version is None:
+                    client_pairs.add((group_id, artifact_id))
+                else:
+                    client_triples.add((group_id, artifact_id, version))
+        metadata_pairs = affected_pairs - client_pairs
+        affected_snapshot_triples -= client_triples
 
         versions_by_pair = defaultdict(set)
-        for row in (
-            MavenArtifact.objects.filter(pk__in=new_version.content)
-            .filter(pairs_q)
-            .values("group_id", "artifact_id", "version")
-            .distinct()
-        ):
-            versions_by_pair[(row["group_id"], row["artifact_id"])].add(row["version"])
+        if metadata_pairs:
+            metadata_pairs_q = Q()
+            for group_id, artifact_id in metadata_pairs:
+                metadata_pairs_q |= Q(group_id=group_id, artifact_id=artifact_id)
+
+            stale_pks = list(
+                MavenMetadata.objects.filter(
+                    pk__in=new_version.content,
+                    version=None,
+                    filename__in=METADATA_FILENAMES,
+                )
+                .filter(metadata_pairs_q)
+                .values_list("pk", flat=True)
+            )
+            changes.to_remove.update(stale_pks)
+
+            for row in (
+                MavenArtifact.objects.filter(pk__in=new_version.content)
+                .filter(metadata_pairs_q)
+                .values("group_id", "artifact_id", "version")
+                .distinct()
+            ):
+                versions_by_pair[(row["group_id"], row["artifact_id"])].add(row["version"])
 
         new_metadata_pks = []
 

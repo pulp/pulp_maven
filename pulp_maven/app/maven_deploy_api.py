@@ -4,7 +4,7 @@ import time
 from tempfile import NamedTemporaryFile
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, connection, transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from drf_spectacular.utils import extend_schema
@@ -13,18 +13,27 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
 from pulpcore.plugin.constants import TASK_FINAL_STATES, TASK_STATES
-from pulpcore.plugin.models import Artifact, ContentArtifact
+from pulpcore.plugin.models import Artifact, ContentArtifact, Task
 from pulpcore.plugin.tasking import dispatch
-from pulpcore.plugin.util import get_domain
+from pulpcore.plugin.util import get_domain, get_prn
 
 from pulp_maven.app.models import (
     MavenArtifact,
     MavenDistribution,
     MavenMetadata,
     MavenPackage,
+    MavenPendingDeploy,
     MavenRepository,
 )
-from pulp_maven.app.tasks import aadd_and_remove
+from pulp_maven.app.tasks import aadd_and_remove, commit_pending_deploys
+
+# How pulpcore names the commit task, to find one that is already waiting.
+COMMIT_TASK_NAME = f"{commit_pending_deploys.__module__}.{commit_pending_deploys.__name__}"
+
+
+def _commit_lock_key(repo):
+    """A Postgres advisory lock key for dispatching a repository's commit task."""
+    return int(hashlib.sha256(f"maven-deploy-commit:{repo.pk}".encode()).hexdigest()[:15], 16)
 
 
 def has_task_completed(task):
@@ -224,6 +233,21 @@ class MavenApiViewSet(ViewSet):
                 ca.artifact = artifact
                 ca.save()
 
+        if not is_metadata and content.filename.endswith(".pom"):
+            pkg, created = MavenPackage.objects.get_or_create(
+                group_id=content.group_id,
+                artifact_id=content.artifact_id,
+                version=content.version,
+                _pulp_domain=get_domain(),
+            )
+            if created or content.version.endswith("-SNAPSHOT"):
+                pkg.update_from_pom(artifact)
+                pkg.save()
+
+        if settings.MAVEN_DEPLOY_BATCH:
+            self.add_pending(repo, content, path)
+            return Response(status=201)
+
         if is_metadata:
             metadata_to_remove = MavenMetadata.objects.filter(
                 pk__in=repo.latest_version().content.all(),
@@ -239,17 +263,6 @@ class MavenApiViewSet(ViewSet):
 
         add_content_units = [str(content.pk)]
 
-        if not is_metadata and content.filename.endswith(".pom"):
-            pkg, created = MavenPackage.objects.get_or_create(
-                group_id=content.group_id,
-                artifact_id=content.artifact_id,
-                version=content.version,
-                _pulp_domain=get_domain(),
-            )
-            if created or content.version.endswith("-SNAPSHOT"):
-                pkg.update_from_pom(artifact)
-                pkg.save()
-
         dispatched_task = dispatch(
             aadd_and_remove,
             exclusive_resources=[repo],
@@ -264,6 +277,34 @@ class MavenApiViewSet(ViewSet):
 
         if has_task_completed(dispatched_task):
             return Response(status=201)
+
+    @staticmethod
+    def add_pending(repo, content, relative_path):
+        """Record a deployed file for the next batch and make sure a commit task will add it."""
+        MavenPendingDeploy.objects.create(
+            repository=repo, content=content, relative_path=relative_path
+        )
+        # Pending files are served from the moment they are recorded, so a cached answer for
+        # this path (a 404 from before the upload) must not outlive it.
+        repo.invalidate_cache()
+        # A commit task still waiting to run will find this file. One that is already running
+        # may have taken its batch before the file arrived, so then another one is dispatched.
+        # The check and the dispatch hold a lock per repository, so uploads arriving together
+        # dispatch one task between them rather than one each.
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(%s)", [_commit_lock_key(repo)])
+            commit_waiting = Task.objects.filter(
+                name=COMMIT_TASK_NAME,
+                state=TASK_STATES.WAITING,
+                reserved_resources_record__contains=[get_prn(repo)],
+            ).exists()
+            if not commit_waiting:
+                dispatch(
+                    commit_pending_deploys,
+                    exclusive_resources=[repo],
+                    kwargs={"repository_pk": str(repo.pk)},
+                )
 
     @staticmethod
     def receive_artifact(chunk):

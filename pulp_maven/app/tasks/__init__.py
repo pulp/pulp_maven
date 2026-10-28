@@ -10,9 +10,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from django.core.files import File
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Max, Min, Q
+from django.utils import timezone
 from redis.exceptions import RedisError
 
 from pulpcore.plugin.models import (
@@ -37,7 +39,9 @@ from pulp_maven.app.models import (
     MavenArtifact,
     MavenMetadata,
     MavenPackage,
+    MavenPendingDeploy,
     MavenRepository,
+    _deploy_batch_ctx,
 )
 from pulp_maven.app.util import PulpListingParser
 
@@ -306,6 +310,59 @@ def _parse_index_pages(page_sources):
 
 async def aadd_and_remove(*args, **kwargs):
     return await sync_to_async(add_and_remove)(*args, **kwargs)
+
+
+def commit_pending_deploys(repository_pk):
+    """Add the files deployed to a repository and still pending, a batch per version.
+
+    Waits until no file has been deployed to the repository for MAVEN_DEPLOY_BATCH_LINGER
+    seconds, but not longer than MAVEN_DEPLOY_BATCH_MAX_WAIT seconds after the oldest
+    pending file, then adds everything pending in one repository version. Repeats while
+    files keep arriving, so nothing deployed during a commit is left behind.
+
+    Within a batch the newest file deployed to a path wins, as it would had each file been
+    added in its own version.
+
+    Args:
+        repository_pk (str): The repository to commit pending deploys for.
+    """
+    repository = MavenRepository.objects.get(pk=repository_pk)
+    linger = datetime.timedelta(seconds=settings.MAVEN_DEPLOY_BATCH_LINGER)
+    max_wait = datetime.timedelta(seconds=settings.MAVEN_DEPLOY_BATCH_MAX_WAIT)
+    pending = MavenPendingDeploy.objects.filter(repository=repository)
+
+    while True:
+        span = pending.aggregate(first=Min("pulp_created"), last=Max("pulp_created"))
+        if span["first"] is None:
+            return
+        wait = (
+            min(span["last"] + linger, span["first"] + max_wait) - timezone.now()
+        ).total_seconds()
+        if wait > 0:
+            time.sleep(wait)
+            continue
+
+        rows = list(
+            pending.order_by("pulp_created").values_list("pk", "content_id", "relative_path")
+        )
+        newest_by_path = {}
+        for _, content_id, relative_path in rows:
+            newest_by_path[relative_path] = content_id
+        _deploy_batch_ctx.active = True
+        try:
+            add_and_remove(
+                repository_pk,
+                add_content_units=list(newest_by_path.values()),
+                remove_content_units=[],
+            )
+        finally:
+            _deploy_batch_ctx.active = False
+        MavenPendingDeploy.objects.filter(pk__in=[pk for pk, _, _ in rows]).delete()
+        log.info(
+            "Committed pending deploys: repository=%s, files=%d",
+            repository.name,
+            len(newest_by_path),
+        )
 
 
 def _add_and_remove_skip_metadata(*args, **kwargs):
