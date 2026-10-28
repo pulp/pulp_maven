@@ -567,6 +567,39 @@ class MavenDistribution(Distribution, AutoAddObjPermsMixin):
         ]
 
 
+class _PendingContentChanges:
+    """Content to add to and remove from a repository version, applied in one step.
+
+    pulpcore rewrites a version's whole list of content ids on every ``add_content`` and
+    ``remove_content`` call, so each call costs time in proportion to the size of the
+    repository. Steps that do not read each other's changes collect them here and apply
+    them together.
+    """
+
+    def __init__(self):
+        self.to_add = set()
+        self.to_remove = set()
+
+    def apply(self, new_version):
+        # Something both removed and added stays in the version, as it would if the removal
+        # and the addition were applied in that order.
+        to_remove = self.to_remove - self.to_add
+        if to_remove:
+            new_version.remove_content(Content.objects.filter(pk__in=to_remove))
+        if self.to_add:
+            new_version.add_content(Content.objects.filter(pk__in=self.to_add))
+        self.to_add.clear()
+        self.to_remove.clear()
+
+
+def _group_ids_with_prefix(prefix):
+    """Match the group ids that ``_compute_prefix`` maps to ``prefix`` (``/a/b`` or ``/a``)."""
+    group_id = prefix.lstrip("/").replace("/", ".")
+    if "." in group_id:
+        return Q(group_id=group_id) | Q(group_id__startswith=f"{group_id}.")
+    return Q(group_id=group_id)
+
+
 class MavenRepository(Repository, AutoAddObjPermsMixin):
     """
     Repository for "maven" content.
@@ -635,8 +668,13 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
         """Remove duplicates, ensure packages, and generate metadata and index pages."""
         remove_duplicates(new_version)
         if not getattr(_pull_through_ctx, "active", False):
-            self._ensure_packages(new_version)
-            self._generate_metadata(new_version)
+            # Packages and metadata only read artifacts, which they do not change, so their
+            # changes are applied together. The index pages list the metadata files, so they
+            # are generated after that.
+            changes = _PendingContentChanges()
+            self._ensure_packages(new_version, changes)
+            self._generate_metadata(new_version, changes)
+            changes.apply(new_version)
             self._generate_index_pages(new_version)
             self._generate_bloom_filter(new_version)
 
@@ -660,8 +698,11 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
         """Remove the repository's Bloom filter from Redis."""
         delete_bloom_filter(self)
 
-    def _ensure_packages(self, new_version):
-        """Manage MavenPackage version membership. Creates missing packages when a POM is available."""
+    def _ensure_packages(self, new_version, changes):
+        """Manage MavenPackage version membership. Creates missing packages when a POM is available.
+
+        The packages to add and remove are collected in ``changes`` (a _PendingContentChanges).
+        """
         from django.db.models import Q
 
         from pulpcore.plugin.models import ContentArtifact
@@ -749,8 +790,7 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                 pkg.save()
             package_pks_to_add.append(pkg.pk)
 
-        if package_pks_to_add:
-            new_version.add_content(MavenPackage.objects.filter(pk__in=package_pks_to_add))
+        changes.to_add.update(package_pks_to_add)
 
         dead_gavs = affected_gavs - live_gavs
         if dead_gavs:
@@ -760,7 +800,7 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
             dead_pkgs = MavenPackage.objects.filter(
                 pk__in=new_version.content, _pulp_domain=self.pulp_domain
             ).filter(dead_q)
-            new_version.remove_content(dead_pkgs)
+            changes.to_remove.update(dead_pkgs.values_list("pk", flat=True))
 
     def _ensure_packages_full_scan(self, new_version):
         """Reconcile MavenPackage membership across the whole version.
@@ -890,8 +930,11 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
             skipped_unreadable,
         )
 
-    def _generate_metadata(self, new_version):
-        """Generate maven-metadata.xml and checksums for affected (group_id, artifact_id) pairs."""
+    def _generate_metadata(self, new_version, changes):
+        """Generate maven-metadata.xml and checksums for affected (group_id, artifact_id) pairs.
+
+        The metadata to add and remove is collected in ``changes`` (a _PendingContentChanges).
+        """
         from collections import defaultdict
 
         from django.db.models import Q
@@ -934,8 +977,7 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
             .filter(pairs_q)
             .values_list("pk", flat=True)
         )
-        if stale_pks:
-            new_version.remove_content(MavenMetadata.objects.filter(pk__in=stale_pks))
+        changes.to_remove.update(stale_pks)
 
         versions_by_pair = defaultdict(set)
         for row in (
@@ -969,8 +1011,7 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                 .filter(triples_q)
                 .values_list("pk", flat=True)
             )
-            if stale_version_pks:
-                new_version.remove_content(MavenMetadata.objects.filter(pk__in=stale_version_pks))
+            changes.to_remove.update(stale_version_pks)
 
             for group_id, artifact_id, version in affected_snapshot_triples:
                 filenames = list(
@@ -989,8 +1030,7 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                     )
                 )
 
-        if new_metadata_pks:
-            new_version.add_content(MavenMetadata.objects.filter(pk__in=new_metadata_pks))
+        changes.to_add.update(new_metadata_pks)
 
         # --- prefixes.txt generation ---
         # Compute prefixes from the affected group_ids. If the set of
@@ -1000,30 +1040,16 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
         # Changed artifact prefixes (from removed or added artifacts)
         affected_prefixes = {_compute_prefix(gid) for gid, _ in affected_pairs}
 
-        # Get all group_ids currently in the version (across ALL artifacts,
-        # not just the affected ones) so we can check whether the affected
-        # prefixes are truly new or truly gone.
-        all_group_ids = set(
-            MavenArtifact.objects.filter(pk__in=new_version.content)
-            .values_list("group_id", flat=True)
-            .distinct()
+        # The prefix set changed when an affected prefix appeared or disappeared, that is,
+        # when no artifact outside the affected pairs carries it. (A prefix that no artifact
+        # carries any more is not carried by those either.) Only the affected prefixes are
+        # looked up, so the cost does not grow with the size of the repository.
+        unaffected_artifacts = MavenArtifact.objects.filter(pk__in=new_version.content).exclude(
+            pairs_q
         )
-        # All prefixes in the repo now
-        current_prefixes = {_compute_prefix(gid) for gid in all_group_ids}
-
-        unaffected_group_ids = set(
-            MavenArtifact.objects.filter(pk__in=new_version.content)
-            .exclude(pairs_q)
-            .values_list("group_id", flat=True)
-            .distinct()
-        )
-
-        unaffected_prefixes = {_compute_prefix(gid) for gid in unaffected_group_ids}
-
-        # affected prefixes not in unaffected prefix list? -> prefixes added
-        # affected prefixes not in current prefix list? -> prefixes removed
-        prefix_set_changed = bool(affected_prefixes - unaffected_prefixes) or bool(
-            affected_prefixes - current_prefixes
+        prefix_set_changed = any(
+            not unaffected_artifacts.filter(_group_ids_with_prefix(prefix)).exists()
+            for prefix in affected_prefixes
         )
 
         # Also check if this repository version has a prefixes.txt file.
@@ -1038,12 +1064,16 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
         )
         if prefix_set_changed or not old_prefixes_pks:
             # Remove old prefixes.txt from the version
-            if old_prefixes_pks:
-                new_version.remove_content(MavenMetadata.objects.filter(pk__in=old_prefixes_pks))
+            changes.to_remove.update(old_prefixes_pks)
 
+            current_prefixes = {
+                _compute_prefix(group_id)
+                for group_id in MavenArtifact.objects.filter(pk__in=new_version.content)
+                .values_list("group_id", flat=True)
+                .distinct()
+            }
             if current_prefixes:
-                prefixes_pks = _save_prefixes_txt(current_prefixes, self.pulp_domain)
-                new_version.add_content(MavenMetadata.objects.filter(pk__in=prefixes_pks))
+                changes.to_add.update(_save_prefixes_txt(current_prefixes, self.pulp_domain))
 
     def _generate_index_pages(self, new_version, affected_paths=None):
         """Generate HTML index pages for directory paths touched by this version.
@@ -1124,11 +1154,16 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
 
         # Pre-fetch all existing index pages so we can remove stale ones without
         # issuing one EXISTS query per directory.
-        existing_indexes_qs = MavenIndexPage.objects.filter(pk__in=new_version.content).only(
-            "path", "pk", "sha256", "pulp_type"
-        )
-        if not bulk_mode:
-            existing_indexes_qs = existing_indexes_qs.filter(path__in=affected_paths)
+        if bulk_mode:
+            existing_indexes_qs = MavenIndexPage.objects.filter(pk__in=new_version.content)
+        else:
+            # Pages of the affected directories, each checked for membership in the version,
+            # instead of expanding the version's whole content list.
+            existing_indexes_qs = MavenIndexPage.objects.filter(
+                Exists(new_version._content_relationships().filter(content_id=OuterRef("pk"))),
+                path__in=affected_paths,
+            )
+        existing_indexes_qs = existing_indexes_qs.only("path", "pk", "sha256", "pulp_type")
         existing_indexes = {
             index_page.path: index_page for index_page in existing_indexes_qs.iterator()
         }
