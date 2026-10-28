@@ -1,15 +1,20 @@
 import datetime
 import hashlib
 import logging
+import os
 import tempfile
+import threading
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from asgiref.sync import sync_to_async
+from django.conf import settings
+from django.core.files import File
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Max, Min, Q
+from django.utils import timezone
 from redis.exceptions import RedisError
 
 from pulpcore.plugin.models import (
@@ -34,7 +39,9 @@ from pulp_maven.app.models import (
     MavenArtifact,
     MavenMetadata,
     MavenPackage,
+    MavenPendingDeploy,
     MavenRepository,
+    _deploy_batch_ctx,
 )
 from pulp_maven.app.util import PulpListingParser
 
@@ -133,14 +140,130 @@ def _save_artifact(content_bytes, pulp_domain):
     return artifact
 
 
+_storage_writers = None
+_storage_writers_lock = threading.Lock()
+
+
+def _forget_storage_writers():
+    # A forked child (pulpcore runs each task in one) inherits the pool object but not its
+    # threads, so work submitted to it would wait forever. The child starts its own pool.
+    global _storage_writers, _storage_writers_lock
+    _storage_writers = None
+    _storage_writers_lock = threading.Lock()
+
+
+os.register_at_fork(after_in_child=_forget_storage_writers)
+
+
+def _storage_writer_pool():
+    """Return this process's pool of threads that write files to storage.
+
+    The storage backend keeps one connection per thread (an S3 client, for example), so
+    threads that outlive a single call keep their connections warm. A pool created per
+    call would open a new connection for every file and lose what writing in parallel
+    gains.
+    """
+    global _storage_writers
+    with _storage_writers_lock:
+        if _storage_writers is None:
+            _storage_writers = ThreadPoolExecutor(
+                max_workers=8, thread_name_prefix="maven-storage-writer"
+            )
+        return _storage_writers
+
+
+def _save_blobs(blobs, pulp_domain):
+    """Save byte strings as Artifacts and return them keyed by sha256.
+
+    Follows the same pattern as pulpcore's sync pipeline ArtifactSaver stage: one query
+    finds which digests already exist, and only genuinely new content is written, so an
+    existing artifact costs no file open and no upload.
+
+    The new files are written to storage in parallel, each straight to the path its
+    Artifact uses, so inserting the Artifact rows afterwards finds them in place and does
+    not upload them again. These files are small and numerous (metadata, checksums, index
+    pages), so the round trips to storage, not the bytes, are what would cost time if
+    they were written one after another.
+
+    Args:
+        blobs: iterable of bytes.
+        pulp_domain: the Domain instance to scope Artifacts to.
+
+    Returns:
+        dict mapping sha256 -> Artifact.
+    """
+    from pulpcore.plugin.util import get_domain, set_domain
+
+    data_by_digest = {}
+    for data in blobs:
+        data_by_digest.setdefault(hashlib.sha256(data).hexdigest(), data)
+
+    # One DB query per 1 000 sha256s keeps the IN clause at a manageable size.
+    sha256_to_artifact = {}
+    all_digests = list(data_by_digest)
+    for i in range(0, len(all_digests), 1000):
+        for artifact in Artifact.objects.filter(
+            sha256__in=all_digests[i : i + 1000],
+            pulp_domain=pulp_domain,
+        ):
+            sha256_to_artifact[artifact.sha256] = artifact
+
+    new_items = [
+        (digest, data)
+        for digest, data in data_by_digest.items()
+        if digest not in sha256_to_artifact
+    ]
+    if not new_items:
+        return sha256_to_artifact
+
+    # ContextVar values (including the domain set by pulpcore's task runner) do NOT
+    # propagate to ThreadPoolExecutor worker threads. Capture the domain in the calling
+    # thread and set it explicitly at the start of each worker. Context.run() cannot be
+    # used here: a single Context object cannot be entered concurrently by multiple
+    # threads (raises "cannot enter context: already entered").
+    current_domain = get_domain()
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+
+        def _store(item):
+            digest, data = item
+            set_domain(current_domain)
+            with tempfile.NamedTemporaryFile(dir=temp_dir, delete=False) as tmp:
+                tmp.write(data)
+            artifact = Artifact.init_and_validate(tmp.name, expected_digests={"sha256": digest})
+            artifact.pulp_domain = pulp_domain
+            final_path = artifact.storage_path("")
+            with open(tmp.name, "rb") as fh:
+                stored_path = artifact.file.storage.save(final_path, File(fh))
+            if stored_path == final_path:
+                # Already in place: saving the Artifact keeps the file where it is.
+                artifact.file = stored_path
+            else:
+                # The storage kept an existing file and chose another name. Drop the copy
+                # and let saving the Artifact move the file the usual way.
+                artifact.file.storage.delete(stored_path)
+            return artifact
+
+        artifacts = sorted(_storage_writer_pool().map(_store, new_items), key=lambda a: a.sha256)
+
+        # Database insertion stays batched in the calling thread.
+        for i in range(0, len(artifacts), 500):
+            batch = artifacts[i : i + 500]
+            try:
+                for artifact in Artifact.objects.bulk_get_or_create(batch):
+                    sha256_to_artifact[artifact.sha256] = artifact
+            finally:
+                # bulk_create bypasses Artifact.save(), including its file cleanup.
+                for artifact in batch:
+                    artifact.file.close()
+
+    return sha256_to_artifact
+
+
 def _save_artifacts_batch(pages, pulp_domain):
     """Save a collection of (dir_path, html_bytes) pairs as Artifacts.
 
-    Follows the same pattern as pulpcore's sync pipeline ArtifactSaver stage:
-    batch-query which sha256 digests already exist, then only open temp files
-    for genuinely new content.  This avoids the file-descriptor accumulation that
-    occurs when checking existence one-at-a-time in a tight loop — existing
-    artifacts are returned with zero file opens.
+    Multiple directories can share the same listing, and so the same Artifact.
 
     Args:
         pages: iterable of (dir_path, html_bytes) pairs.
@@ -149,83 +272,12 @@ def _save_artifacts_batch(pages, pulp_domain):
     Returns:
         dict mapping dir_path -> Artifact.
     """
-    # Map each unique sha256 to one representative (dir_path, html_bytes).
-    # Multiple directories can share the same sha256 (identical listings).
-    sha256_to_repr: dict = {}
-    dir_to_sha256: dict = {}
-    for dir_path, html_bytes in pages:
-        digest = hashlib.sha256(html_bytes).hexdigest()
-        dir_to_sha256[dir_path] = digest
-        if digest not in sha256_to_repr:
-            sha256_to_repr[digest] = (dir_path, html_bytes)
-
-    # Batch-check existence — one DB query per 1 000 sha256s to keep
-    # the IN clause at a manageable size.
-    sha256_to_artifact: dict = {}
-    all_digests = list(sha256_to_repr.keys())
-    for i in range(0, len(all_digests), 1000):
-        for artifact in Artifact.objects.filter(
-            sha256__in=all_digests[i : i + 1000],
-            pulp_domain=pulp_domain,
-        ):
-            sha256_to_artifact[artifact.sha256] = artifact
-
-    # Prepare only the artifacts that do not already exist, in parallel. Database
-    # insertion remains batched in the calling thread.
-    new_items = [
-        (digest, html_bytes)
-        for digest, (_, html_bytes) in sha256_to_repr.items()
-        if digest not in sha256_to_artifact
-    ]
-    if new_items:
-        from pulpcore.plugin.util import get_domain, set_domain
-
-        # ContextVar values (including the domain set by pulpcore's task runner) do
-        # NOT propagate to ThreadPoolExecutor worker threads.  Capture the domain in
-        # the calling thread and set it explicitly at the start of each worker.
-        # Context.run() cannot be used here: a single Context object cannot be
-        # entered concurrently by multiple threads (raises "cannot enter context:
-        # already entered" when more than one worker fires at the same time).
-        current_domain = get_domain()
-
-        pending_artifacts = []
-
-        def flush_pending():
-            pending_artifacts.sort(key=lambda artifact: artifact.sha256)
-            try:
-                artifacts = Artifact.objects.bulk_get_or_create(pending_artifacts)
-                sha256_to_artifact.update({artifact.sha256: artifact for artifact in artifacts})
-            finally:
-                # bulk_create bypasses Artifact.save(), including its file cleanup.
-                for artifact in pending_artifacts:
-                    artifact.file.close()
-                pending_artifacts.clear()
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-
-            def _upload(digest, html_bytes):
-                set_domain(current_domain)
-                with tempfile.NamedTemporaryFile(dir=temp_dir, delete=False) as tmp:
-                    tmp.write(html_bytes)
-                    tmp.flush()
-                    artifact = Artifact.init_and_validate(
-                        tmp.name,
-                        expected_digests={"sha256": digest},
-                    )
-                artifact.pulp_domain = pulp_domain
-                return artifact
-
-            with ThreadPoolExecutor(max_workers=10) as pool:
-                futures = {pool.submit(_upload, digest, data) for digest, data in new_items}
-                for future in as_completed(futures):
-                    pending_artifacts.append(future.result())
-                    if len(pending_artifacts) >= 500:
-                        flush_pending()
-
-            if pending_artifacts:
-                flush_pending()
-
-    return {dir_path: sha256_to_artifact[digest] for dir_path, digest in dir_to_sha256.items()}
+    pages = list(pages)
+    sha256_to_artifact = _save_blobs((html_bytes for _, html_bytes in pages), pulp_domain)
+    return {
+        dir_path: sha256_to_artifact[hashlib.sha256(html_bytes).hexdigest()]
+        for dir_path, html_bytes in pages
+    }
 
 
 def _parse_index_pages(page_sources):
@@ -258,6 +310,59 @@ def _parse_index_pages(page_sources):
 
 async def aadd_and_remove(*args, **kwargs):
     return await sync_to_async(add_and_remove)(*args, **kwargs)
+
+
+def commit_pending_deploys(repository_pk):
+    """Add the files deployed to a repository and still pending, a batch per version.
+
+    Waits until no file has been deployed to the repository for MAVEN_DEPLOY_BATCH_LINGER
+    seconds, but not longer than MAVEN_DEPLOY_BATCH_MAX_WAIT seconds after the oldest
+    pending file, then adds everything pending in one repository version. Repeats while
+    files keep arriving, so nothing deployed during a commit is left behind.
+
+    Within a batch the newest file deployed to a path wins, as it would had each file been
+    added in its own version.
+
+    Args:
+        repository_pk (str): The repository to commit pending deploys for.
+    """
+    repository = MavenRepository.objects.get(pk=repository_pk)
+    linger = datetime.timedelta(seconds=settings.MAVEN_DEPLOY_BATCH_LINGER)
+    max_wait = datetime.timedelta(seconds=settings.MAVEN_DEPLOY_BATCH_MAX_WAIT)
+    pending = MavenPendingDeploy.objects.filter(repository=repository)
+
+    while True:
+        span = pending.aggregate(first=Min("pulp_created"), last=Max("pulp_created"))
+        if span["first"] is None:
+            return
+        wait = (
+            min(span["last"] + linger, span["first"] + max_wait) - timezone.now()
+        ).total_seconds()
+        if wait > 0:
+            time.sleep(wait)
+            continue
+
+        rows = list(
+            pending.order_by("pulp_created").values_list("pk", "content_id", "relative_path")
+        )
+        newest_by_path = {}
+        for _, content_id, relative_path in rows:
+            newest_by_path[relative_path] = content_id
+        _deploy_batch_ctx.active = True
+        try:
+            add_and_remove(
+                repository_pk,
+                add_content_units=list(newest_by_path.values()),
+                remove_content_units=[],
+            )
+        finally:
+            _deploy_batch_ctx.active = False
+        MavenPendingDeploy.objects.filter(pk__in=[pk for pk, _, _ in rows]).delete()
+        log.info(
+            "Committed pending deploys: repository=%s, files=%d",
+            repository.name,
+            len(newest_by_path),
+        )
 
 
 def _add_and_remove_skip_metadata(*args, **kwargs):
@@ -494,16 +599,16 @@ def _save_metadata_content(group_id, artifact_id, version, base_path, metadata_x
 
     Returns a list of MavenMetadata primary keys.
     """
-    xml_artifact = _save_artifact(metadata_xml, pulp_domain)
-
-    files_to_create = [("maven-metadata.xml", base_path, xml_artifact)]
+    files = [("maven-metadata.xml", base_path, metadata_xml)]
     for ext, algo in [(".md5", "md5"), (".sha1", "sha1"), (".sha256", "sha256")]:
-        checksum_value = getattr(xml_artifact, algo)
-        if checksum_value is None:
-            checksum_value = hashlib.new(algo, metadata_xml).hexdigest()
-        checksum_bytes = checksum_value.encode("utf-8")
-        checksum_artifact = _save_artifact(checksum_bytes, pulp_domain)
-        files_to_create.append((f"maven-metadata.xml{ext}", f"{base_path}{ext}", checksum_artifact))
+        checksum_bytes = hashlib.new(algo, metadata_xml).hexdigest().encode("utf-8")
+        files.append((f"maven-metadata.xml{ext}", f"{base_path}{ext}", checksum_bytes))
+
+    sha256_to_artifact = _save_blobs((data for _, _, data in files), pulp_domain)
+    files_to_create = [
+        (filename, relative_path, sha256_to_artifact[hashlib.sha256(data).hexdigest()])
+        for filename, relative_path, data in files
+    ]
 
     pks = []
     for filename, relative_path, artifact in files_to_create:
