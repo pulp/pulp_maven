@@ -1308,6 +1308,32 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                         name: values.copy() for name, values in parsed_state.items()
                     }
 
+            # Every non-empty directory has its own page, so a parsed subdirectory entry
+            # without one is left over from content removed without regenerating this
+            # page. Drop such entries: kept, they would be carried into every new version
+            # and keep their parents listed after the last real content is gone.
+            # Subdirectories touched by this version are settled bottom-up below.
+            unaffected_child_paths = {
+                f"{directory_path}{name}"
+                for directory_path, entries in page_states.items()
+                for name in entries
+                if name.endswith("/") and f"{directory_path}{name}" not in affected_paths
+            }
+            child_paths = sorted(unaffected_child_paths)
+            paged_child_paths = set()
+            for offset in range(0, len(child_paths), 1000):
+                paged_child_paths.update(
+                    MavenIndexPage.objects.filter(
+                        pk__in=new_version.content,
+                        path__in=child_paths[offset : offset + 1000],
+                    ).values_list("path", flat=True)
+                )
+            for directory_path, entries in page_states.items():
+                for name in list(entries):
+                    child_path = f"{directory_path}{name}"
+                    if child_path in unaffected_child_paths and child_path not in paged_child_paths:
+                        del entries[name]
+
             # Remove direct files first. Directory removals are determined bottom-up,
             # after checking whether their child page actually became empty.
             for directory_path, changes in affected_paths.items():

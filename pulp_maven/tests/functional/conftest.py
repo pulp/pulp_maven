@@ -96,6 +96,66 @@ def maven_remote_factory(maven_remote_api_client, gen_object_with_cleanup):
 
 
 @pytest.fixture
+def stale_index_page_repo(
+    maven_bindings,
+    maven_repo_factory,
+    maven_distribution_factory,
+    maven_artifact_api_client,
+    maven_repo_api_client,
+    random_artifact_factory,
+    monitor_task,
+    distribution_base_url,
+):
+    """Factory for a repository whose index pages list a directory that has no content.
+
+    A source repository gets content under ``com/{uid}/kept/`` and ``com/{uid}/stale/``.
+    Its pages for ``""``, ``com/`` and ``com/{uid}/`` are then added on their own to a new
+    repository. Adding only index pages does not regenerate them, so the new repository
+    lists ``stale/`` (and ``kept/``) without any content or child page behind the entry:
+    the state left behind when content and its child pages are removed while the parent
+    pages are not regenerated.
+
+    Returns:
+        (repo, base_url, uid, kept_hrefs), where ``kept_hrefs`` are the content units
+        under ``com/{uid}/kept/`` in the source repository.
+    """
+
+    def _factory():
+        uid = uuid.uuid4().hex[:8]
+        source = maven_repo_factory()
+        content_hrefs = {}
+        for name in ("kept", "stale"):
+            artifact = random_artifact_factory(size=64)
+            content_hrefs[name] = maven_artifact_api_client.upload(
+                artifact=artifact.pulp_href,
+                relative_path=f"com/{uid}/{name}/1.0/{name}-1.0.jar",
+            ).pulp_href
+        monitor_task(
+            maven_repo_api_client.modify(
+                source.pulp_href, {"add_content_units": list(content_hrefs.values())}
+            ).task
+        )
+        source = maven_repo_api_client.read(source.pulp_href)
+        pages = maven_bindings.ContentMavenIndexPageApi.list(
+            repository_version=source.latest_version_href, limit=100
+        ).results
+        parent_page_hrefs = [p.pulp_href for p in pages if p.path in ("", "com/", f"com/{uid}/")]
+        assert len(parent_page_hrefs) == 3
+
+        repo = maven_repo_factory()
+        distro = maven_distribution_factory(repository=repo.pulp_href)
+        monitor_task(
+            maven_repo_api_client.modify(
+                repo.pulp_href, {"add_content_units": parent_page_hrefs}
+            ).task
+        )
+        repo = maven_repo_api_client.read(repo.pulp_href)
+        return repo, distribution_base_url(distro.base_url), uid, [content_hrefs["kept"]]
+
+    return _factory
+
+
+@pytest.fixture
 def pom_file_factory(tmp_path):
     """Create POM XML files with specified metadata.
 
