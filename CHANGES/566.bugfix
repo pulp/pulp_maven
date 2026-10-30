@@ -1,0 +1,1 @@
+Rebuild the process-global ``default_storage`` around each unit test so storage state mutated by one test (e.g. patching ``location`` on the default domain) cannot leak into later tests under pytest 9.2.
