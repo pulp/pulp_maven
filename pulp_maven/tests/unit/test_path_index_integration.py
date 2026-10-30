@@ -81,6 +81,22 @@ def change(repository, add=(), remove=()):
     return version
 
 
+class _RelocatedStorage:
+    """A read-only view of a storage backend with an overridden ``location``.
+
+    Lets a test simulate a storage-location change without mutating the
+    process-global ``default_storage`` that the default domain returns -- that
+    mutation would otherwise leak into later tests.
+    """
+
+    def __init__(self, storage, location):
+        self._storage = storage
+        self.location = location
+
+    def __getattr__(self, name):
+        return getattr(self._storage, name)
+
+
 def test_index_pages_are_bulk_created_and_reused(repository):
     first_pages = {
         "": SimpleNamespace(sha256="1" * 64),
@@ -458,8 +474,12 @@ def test_fresh_namespace_rebuilds_incompatible_profile(repository, storage, monk
     old = version.info[INFO_KEY]["profile"]
     domain = repository.pulp_domain
     if domain.storage_class in S3_BACKENDS:
-        # The default S3 domain reads Django storage, not its storage_settings field.
-        monkeypatch.setattr(domain.get_storage(), "location", "new-experiment")
+        # The default S3 domain reads Django's process-global default_storage, not its
+        # storage_settings field. Patch get_storage to return a relocated *view* --
+        # visible to the domain reloaded inside build_path_index -- rather than mutating
+        # that shared instance, which would leak into other tests.
+        relocated = _RelocatedStorage(domain.get_storage(), "new-experiment")
+        monkeypatch.setattr(Domain, "get_storage", lambda self: relocated)
     else:
         domain.storage_settings = {"location": "new-experiment"}
         domain.save(update_fields=["storage_settings"], skip_hooks=True)
