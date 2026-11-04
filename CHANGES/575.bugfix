@@ -1,0 +1,1 @@
+Made incremental Maven index-page generation skip ancestor directories whose set of immediate children is unchanged, so adding content to a large repository no longer re-renders unrelated directory index pages.
