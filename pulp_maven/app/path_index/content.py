@@ -1,5 +1,6 @@
 """Optional content hook. Core still authorizes every request before this hook."""
 
+import logging
 import threading
 import time
 from collections import OrderedDict
@@ -16,7 +17,10 @@ from .cache import cache
 from .config import enabled, profile
 from .format import InvalidIndex
 from .http import SUPPORTED_BACKENDS, IndexedArtifactResponse
+from .metrics import record_fallback
 from .state import descriptor as version_descriptor
+
+log = logging.getLogger(__name__)
 
 _descriptors = OrderedDict()
 _lock = threading.Lock()
@@ -91,9 +95,16 @@ def indexed_response(distribution, path):
         return None
     key = descriptor(distribution)
     if key is None:
+        record_fallback("descriptor_unavailable")
+        log.info("Maven path index fallback: descriptor unavailable", extra={"request_path": path})
         return None
     with cache().lease(key) as view:
         if view is None:
+            record_fallback("view_unavailable")
+            log.info(
+                "Maven path index fallback: view unavailable",
+                extra={"request_path": path, "repository_version": str(key[1])},
+            )
             return None
         entry = view.lookup(path)
         if entry is None and path and not path.endswith("/") and view.lookup(path + "/"):
