@@ -15,6 +15,7 @@ from pulpcore.plugin.models import RepositoryVersion
 from pulpcore.plugin.util import set_domain
 
 from .config import enabled, profile, store
+from .metrics import record_load_duration
 from .s3 import CacheFull, IndexUnavailable
 from .state import descriptor, read
 
@@ -46,6 +47,17 @@ class ViewCache:
     def _load(self, key):
         from pulp_maven.app.models import MavenRepository
 
+        started = time.monotonic()
+        repository_id, version_id, index_profile, digest = key
+        log.info(
+            "Path index view load started",
+            extra={
+                "repository": repository_id,
+                "repository_version": version_id,
+                "index_profile": index_profile,
+                "index_digest": digest,
+            },
+        )
         close_old_connections()
         view = None
         try:
@@ -76,8 +88,30 @@ class ViewCache:
                     self.views.pop(victim)[0].close()
                 self.views[key] = [view, 0]
                 view = None
+            record_load_duration(time.monotonic() - started, success=True)
+            log.info(
+                "Path index view loaded",
+                extra={
+                    "repository": repository_id,
+                    "repository_version": version_id,
+                    "index_profile": index_profile,
+                    "index_digest": digest,
+                    "load_duration_ms": round((time.monotonic() - started) * 1000, 3),
+                },
+            )
         except Exception:
-            log.debug("Path index view unavailable", exc_info=True)
+            record_load_duration(time.monotonic() - started, success=False)
+            log.warning(
+                "Path index view unavailable",
+                exc_info=True,
+                extra={
+                    "repository": repository_id,
+                    "repository_version": version_id,
+                    "index_profile": index_profile,
+                    "index_digest": digest,
+                    "load_duration_ms": round((time.monotonic() - started) * 1000, 3),
+                },
+            )
         finally:
             if view is not None:
                 view.close()
@@ -87,6 +121,14 @@ class ViewCache:
                 self.retry[key] = time.monotonic() + settings.MAVEN_PATH_INDEX_REFRESH_SECONDS
                 if len(self.retry) > 1024:
                     self.retry.pop(next(iter(self.retry)))
+
+    def prewarm(self, keys):
+        with self.lock:
+            for key in keys:
+                if key in self.views or key in self.pending:
+                    continue
+                self.pending[key] = True
+                self.pool.submit(self._load, key)
 
     @contextmanager
     def lease(self, key):

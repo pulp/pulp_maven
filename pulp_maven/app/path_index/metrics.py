@@ -1,0 +1,29 @@
+from django.conf import settings
+
+if settings.OTEL_ENABLED:
+    from pulpcore.metrics import init_otel_meter
+
+    _meter = init_otel_meter("pulp-content")
+    _load_duration = _meter.create_histogram(
+        name="maven_path_index_load_duration_seconds",
+        description="Maven path-index view load duration",
+        unit="s",
+    )
+    _fallbacks = _meter.create_counter(
+        name="maven_path_index_fallbacks_total",
+        description="Maven requests that fall back from the path index",
+        unit="1",
+    )
+else:
+    _load_duration = None
+    _fallbacks = None
+
+
+def record_load_duration(duration, *, success):
+    if _load_duration is not None:
+        _load_duration.record(duration, attributes={"status": "success" if success else "failure"})
+
+
+def record_fallback(reason):
+    if _fallbacks is not None:
+        _fallbacks.add(1, attributes={"reason": reason})
