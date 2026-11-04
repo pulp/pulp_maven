@@ -1,0 +1,1 @@
+Fixed uploads to path-indexed repositories in domains with their own storage failing with "Generated directory coverage is incomplete" after the first upload. Existing index pages are now read from the repository domain's storage, and pages that cannot be read are rebuilt from repository content instead of being dropped.
