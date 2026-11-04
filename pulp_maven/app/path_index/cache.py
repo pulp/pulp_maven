@@ -15,7 +15,12 @@ from pulpcore.plugin.models import RepositoryVersion
 from pulpcore.plugin.util import set_domain
 
 from .config import enabled, profile, store
-from .metrics import record_load_duration
+from .metrics import (
+    record_cache_eviction,
+    record_cache_full,
+    record_cache_miss,
+    record_load_duration,
+)
 from .s3 import CacheFull, IndexUnavailable
 from .state import descriptor, read
 
@@ -79,18 +84,35 @@ class ViewCache:
                     for old_key in list(self.views):
                         if self.views[old_key][1] == 0:
                             self.views.pop(old_key)[0].close()
+                            record_cache_eviction()
                 view = prepare(repository, key[1], digest=key[3])
             with self.lock:
                 while len(self.views) >= settings.MAVEN_PATH_INDEX_MAX_VIEWS:
                     victim = next((k for k, v in self.views.items() if v[1] == 0), None)
                     if victim is None:
+                        record_cache_full()
                         raise CacheFull("All mapped version views are in use")
                     self.views.pop(victim)[0].close()
+                    record_cache_eviction()
                 self.views[key] = [view, 0]
                 view = None
             record_load_duration(time.monotonic() - started, success=True)
             log.info(
                 "Path index view loaded",
+                extra={
+                    "repository": repository_id,
+                    "repository_version": version_id,
+                    "index_profile": index_profile,
+                    "index_digest": digest,
+                    "load_duration_ms": round((time.monotonic() - started) * 1000, 3),
+                },
+            )
+        except CacheFull:
+            record_cache_full()
+            record_load_duration(time.monotonic() - started, success=False)
+            log.warning(
+                "Path index view unavailable",
+                exc_info=True,
                 extra={
                     "repository": repository_id,
                     "repository_version": version_id,
@@ -140,13 +162,20 @@ class ViewCache:
             if item is not None:
                 item[1] += 1
                 self.views.move_to_end(key)
-            elif (
-                key not in self.pending
-                and self.retry.get(key, 0) <= time.monotonic()
-                and len(self.pending) < LOAD_WORKERS
-            ):
-                self.pending[key] = True
-                self.pool.submit(self._load, key)
+            else:
+                if key in self.pending:
+                    record_cache_miss("pending")
+                elif self.retry.get(key, 0) > time.monotonic():
+                    record_cache_miss("unavailable")
+                else:
+                    record_cache_miss("cold")
+                if (
+                    key not in self.pending
+                    and self.retry.get(key, 0) <= time.monotonic()
+                    and len(self.pending) < LOAD_WORKERS
+                ):
+                    self.pending[key] = True
+                    self.pool.submit(self._load, key)
         try:
             yield item[0] if item else None
         finally:
