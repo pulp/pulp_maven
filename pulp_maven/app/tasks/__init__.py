@@ -230,8 +230,15 @@ def _save_artifacts_batch(pages, pulp_domain):
 
 def _parse_index_pages(page_sources):
     """Return parsed entries and failures keyed by digest for index page Artifacts."""
+    from pulpcore.plugin.util import get_domain, set_domain
+
+    # Artifact files resolve their storage via the current domain ContextVar, which
+    # does NOT propagate to ThreadPoolExecutor workers. Without this, every read in a
+    # non-default domain with its own storage hits the default domain's backend.
+    current_domain = get_domain()
 
     def parse_page(digest, artifact):
+        set_domain(current_domain)
         parser = PulpListingParser()
         with artifact.file.open("rb") as handle:
             parser.feed(handle.read().decode("utf-8"))

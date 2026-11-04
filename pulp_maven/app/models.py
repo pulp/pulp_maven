@@ -1288,8 +1288,10 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                 )
                 artifacts_by_digest.update({artifact.sha256: artifact for artifact in artifacts})
 
-            # Missing and unreadable pages are optional optimization failures. Remove
-            # them and skip affected ancestors rather than failing repository creation.
+            # Missing and unreadable pages cannot be updated incrementally. Skip them
+            # (and their affected ancestors) here and rebuild those directories from
+            # the version's content below, rather than failing repository creation or
+            # dropping pages that the authoritative path index requires.
             missing = digest_to_paths.keys() - artifacts_by_digest.keys()
             for digest in missing:
                 logger.warning(
@@ -1399,10 +1401,12 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                     "size": None,
                 }
 
+            # Skipped directories keep their current page until the full rebuild below
+            # replaces it; removing it here would leave the directory uncovered.
             pages_to_remove = {
                 existing_indexes[directory_path].pk
                 for directory_path in affected_paths
-                if directory_path in existing_indexes
+                if directory_path in existing_indexes and directory_path not in skipped_paths
             }
             pages_to_save = []
             for directory_path, entries in page_states.items():
@@ -1445,6 +1449,16 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
                 new_version.remove_content(MavenIndexPage.objects.filter(pk__in=pages_to_remove))
             if new_page_pks:
                 new_version.add_content(MavenIndexPage.objects.filter(pk__in=new_page_pks))
+
+            if skipped_paths:
+                # Rebuild the skipped directories from the database (no page reads).
+                # Rare and logged above; costs one scan of the version's content.
+                logger.warning(
+                    "Rebuilding %d Maven index pages from repository content: %s",
+                    len(skipped_paths),
+                    sorted(skipped_paths),
+                )
+                self._generate_index_pages(new_version, affected_paths=skipped_paths)
 
     def _generate_bloom_filter(self, new_version):
         """Generate the Bloom filter for the repository if configured."""

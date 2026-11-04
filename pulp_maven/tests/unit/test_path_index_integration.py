@@ -522,3 +522,77 @@ def test_cache_pressure_releases_idle_mappings(repository, storage):
         assert cached.views[key][0] is fresh
     finally:
         cached.close()
+
+
+@pytest.fixture
+def isolated_repository(repository, tmp_path):
+    """A repository in a non-default domain whose storage differs from the default."""
+    domain = Domain.objects.create(
+        name=f"isolated-{uuid4().hex[:8]}",
+        storage_class="pulpcore.app.models.storage.FileSystem",
+        storage_settings={"location": str(tmp_path / "isolated-media")},
+    )
+    set_domain(domain)
+    try:
+        yield MavenRepository.objects.create(name=str(uuid4()), pulp_labels={"path_index": "true"})
+    finally:
+        set_domain(repository.pulp_domain)
+
+
+def page_names(version, directory):
+    from pulp_maven.app.util import PulpListingParser
+
+    ca = ContentArtifact.objects.select_related("artifact").get(
+        content__in=version.content,
+        content__pulp_type="maven.index-page",
+        relative_path=f"{directory}index.html",
+    )
+    parser = PulpListingParser()
+    with ca.artifact.file.open("rb") as handle:
+        parser.feed(handle.read().decode("utf-8"))
+    parser.close()
+    return {entry.name for entry in parser.entries}
+
+
+def test_parse_index_pages_reads_from_current_domain_storage(isolated_repository):
+    from pulp_maven.app.tasks import _parse_index_pages
+
+    html = b'<html><body><a href="a.jar">a.jar</a></body></html>'
+    artifacts = _save_artifacts_batch([("dir/", html)], isolated_repository.pulp_domain)
+    artifact = artifacts["dir/"]
+
+    parsed, failures = _parse_index_pages([(artifact.sha256, artifact)])
+
+    assert failures == {}
+    assert artifact.sha256 in parsed
+
+
+def test_second_upload_in_isolated_domain_updates_shared_pages(isolated_repository, storage):
+    # Regression: the second upload must read the pages written by the first one
+    # from the repository domain's storage, not the default domain's.
+    first = change(isolated_repository, [content("com/example/lib/1.0/a.jar")])
+    assert page_names(first, "com/example/lib/1.0/") == {"a.jar"}
+
+    second = change(isolated_repository, [content("com/example/lib/1.0/b.jar")])
+
+    assert page_names(second, "com/example/lib/1.0/") == {"a.jar", "b.jar"}
+    assert page_names(second, "") == {"com/"}
+
+
+def test_unreadable_pages_are_rebuilt_not_dropped(repository, storage, monkeypatch, caplog):
+    from pulp_maven.app import tasks
+
+    change(repository, [content("com/example/lib/1.0/a.jar")])
+
+    def all_fail(page_sources):
+        return {}, {digest: OSError("unreadable") for digest, _ in page_sources}
+
+    monkeypatch.setattr(tasks, "_parse_index_pages", all_fail)
+    # Without the rebuild fallback this raised InvalidIndex ("coverage is incomplete").
+    second = change(repository, [content("com/example/lib/2.0/b.jar")])
+
+    assert page_names(second, "com/example/lib/") == {"1.0/", "2.0/"}
+    assert page_names(second, "com/example/lib/1.0/") == {"a.jar"}
+    assert page_names(second, "com/example/lib/2.0/") == {"b.jar"}
+    assert page_names(second, "") == {"com/"}
+    assert "Rebuilding" in caplog.text
