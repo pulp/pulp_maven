@@ -1232,6 +1232,41 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
             # add it to the list of pages to remove. After new pages and modified pages are built,
             # batch-save the artifacts and create the MavenIndexPage records.
 
+            # Prune ancestor directories whose set of immediate children does not change.
+            # ``affected_paths`` contains every ancestor directory of every changed path, so a
+            # single deep add marks the root and every shared prefix as affected. Re-parsing and
+            # re-rendering those pages is O(directory fan-out) per directory and dominates
+            # finalize time on large repositories (issue #575). But adding content below an
+            # already-listed child directory does not alter the ancestor's listing — only a
+            # descendant's timestamp — so the ancestor's (potentially huge) index page does not
+            # need to be touched. A directory only needs regeneration when a direct file child is
+            # added/replaced, a brand-new immediate child directory appears, or a removal occurs
+            # (which may empty a child). "Brand-new child directory" is detected without any extra
+            # query or HTML parse: a pre-existing directory has a carried-forward index page and is
+            # therefore present in ``existing_indexes`` (every candidate child is itself an affected
+            # ancestor path, so the affected-paths filter that builds ``existing_indexes`` covers it).
+            def _directory_listing_changes(directory_path, changes):
+                for change in changes:
+                    if isinstance(change, RemovePath):
+                        # A removal may delete a direct file or empty a child directory.
+                        return True
+                    name = file_or_directory_name(directory_path, change.relative_path)
+                    if not name.endswith("/"):
+                        # A direct file child is added or replaced in this directory.
+                        return True
+                    if f"{directory_path}{name}" not in existing_indexes:
+                        # A brand-new immediate child directory appears in this listing.
+                        return True
+                return False
+
+            affected_paths = {
+                directory_path: changes
+                for directory_path, changes in affected_paths.items()
+                if _directory_listing_changes(directory_path, changes)
+            }
+            if not affected_paths:
+                return
+
             modified_index_paths = affected_paths.keys() & existing_indexes.keys()
 
             # Fetch all backing artifacts directly through their domain-scoped digests.
