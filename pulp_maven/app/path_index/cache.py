@@ -15,6 +15,12 @@ from pulpcore.plugin.models import RepositoryVersion
 from pulpcore.plugin.util import set_domain
 
 from .config import enabled, profile, store
+from .metrics import (
+    record_cache_eviction,
+    record_cache_full,
+    record_cache_miss,
+    record_load_duration,
+)
 from .s3 import CacheFull, IndexUnavailable
 from .state import descriptor, read
 
@@ -48,6 +54,8 @@ class ViewCache:
 
         close_old_connections()
         view = None
+        load_status = "failure"
+        started = time.monotonic()
         try:
             repository = MavenRepository.objects.select_related("pulp_domain").get(pk=key[0])
             set_domain(repository.pulp_domain)
@@ -67,18 +75,23 @@ class ViewCache:
                     for old_key in list(self.views):
                         if self.views[old_key][1] == 0:
                             self.views.pop(old_key)[0].close()
+                            record_cache_eviction()
                 view = prepare(repository, key[1], digest=key[3])
             with self.lock:
                 while len(self.views) >= settings.MAVEN_PATH_INDEX_MAX_VIEWS:
                     victim = next((k for k, v in self.views.items() if v[1] == 0), None)
                     if victim is None:
+                        record_cache_full()
                         raise CacheFull("All mapped version views are in use")
                     self.views.pop(victim)[0].close()
+                    record_cache_eviction()
                 self.views[key] = [view, 0]
                 view = None
+                load_status = "success"
         except Exception:
-            log.debug("Path index view unavailable", exc_info=True)
+            log.warning("Path index view unavailable", exc_info=True)
         finally:
+            record_load_duration(time.monotonic() - started, status=load_status)
             if view is not None:
                 view.close()
             close_old_connections()
@@ -95,13 +108,20 @@ class ViewCache:
             if item is not None:
                 item[1] += 1
                 self.views.move_to_end(key)
-            elif (
-                key not in self.pending
-                and self.retry.get(key, 0) <= time.monotonic()
-                and len(self.pending) < LOAD_WORKERS
-            ):
-                self.pending[key] = True
-                self.pool.submit(self._load, key)
+            else:
+                if key in self.pending:
+                    record_cache_miss("pending")
+                elif self.retry.get(key, 0) > time.monotonic():
+                    record_cache_miss("unavailable")
+                else:
+                    record_cache_miss("cold")
+                if (
+                    key not in self.pending
+                    and self.retry.get(key, 0) <= time.monotonic()
+                    and len(self.pending) < LOAD_WORKERS
+                ):
+                    self.pending[key] = True
+                    self.pool.submit(self._load, key)
         try:
             yield item[0] if item else None
         finally:

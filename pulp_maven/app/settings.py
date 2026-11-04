@@ -4,6 +4,8 @@
 MAVEN_PATH_INDEX_CACHE_DIR = "/var/lib/pulp/path-index-cache"
 MAVEN_PATH_INDEX_WORK_DIR = None
 MAVEN_PATH_INDEX_CACHE_BYTES = 4 * 1024**3
+# Tune based on monitoring maven_path_index_cache_misses_total,
+# maven_path_index_cache_evictions_total, and maven_path_index_cache_full_total.
 MAVEN_PATH_INDEX_MAX_VIEWS = 8
 MAVEN_PATH_INDEX_REFRESH_SECONDS = 2
 # Match a hosted deployment's existing large-file redirect policy when configured.
