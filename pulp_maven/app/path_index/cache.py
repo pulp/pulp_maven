@@ -123,12 +123,15 @@ class ViewCache:
                     self.retry.pop(next(iter(self.retry)))
 
     def prewarm(self, keys):
+        scheduled = 0
         with self.lock:
             for key in keys:
                 if key in self.views or key in self.pending:
                     continue
                 self.pending[key] = True
                 self.pool.submit(self._load, key)
+                scheduled += 1
+        return scheduled
 
     @contextmanager
     def lease(self, key):
