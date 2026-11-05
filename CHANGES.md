@@ -8,6 +8,15 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.37.1 (2026-11-04) {: #0.37.1 }
+
+#### Bugfixes {: #0.37.1-bugfix }
+
+- Made incremental Maven index-page generation skip ancestor directories whose set of immediate children is unchanged, so adding content to a large repository no longer re-renders unrelated directory index pages.
+  [#575](https://github.com/pulp/pulp_maven/issues/575)
+
+---
+
 ## 0.37.0 (2026-10-27) {: #0.37.0 }
 
 No significant changes.
