@@ -1,6 +1,7 @@
 import datetime
 import hashlib
 import logging
+import re
 import tempfile
 import time
 from collections import defaultdict
@@ -609,8 +610,54 @@ def _parse_extension_and_classifier(filename, artifact_id, version):
         return ext, None
 
 
+# Checksum sidecars are fetched next to the file they describe; Maven never lists them
+# as snapshot versions of their own.
+CHECKSUM_EXTENSIONS = (".md5", ".sha1", ".sha256", ".sha512")
+
+
+def _snapshot_file_version(filename, artifact_id, version):
+    """Split a SNAPSHOT file name into the version it carries and the rest of the name.
+
+    Maven 3 and Gradle deploy SNAPSHOT files under a unique name, with the "SNAPSHOT"
+    of the version replaced by a timestamp and a build number
+    (``lib-1.0-20250801.082604-1.jar``); sbt and older Maven keep ``SNAPSHOT``
+    (``lib-1.0-SNAPSHOT.jar``). Returns ``(file_version, timestamp, build_number)``,
+    with timestamp and build number None for a non-unique name.
+    """
+    base = version[: -len("SNAPSHOT")]
+    match = re.match(
+        re.escape(f"{artifact_id}-{base}") + r"(\d{8}\.\d{6})-(\d+)(?=[-.]|$)", filename
+    )
+    if match:
+        timestamp, build_number = match.group(1), int(match.group(2))
+        return f"{base}{timestamp}-{build_number}", timestamp, build_number
+    return version, None, None
+
+
 def _build_version_level_metadata_xml(group_id, artifact_id, version, filenames):
-    """Build a version-level maven-metadata.xml for a SNAPSHOT version."""
+    """Build a version-level maven-metadata.xml for a SNAPSHOT version.
+
+    Each file is listed under the version its name carries, so a client resolving the
+    SNAPSHOT asks for a file that exists: the timestamped name for a unique snapshot,
+    the plain ``-SNAPSHOT`` name otherwise. When several builds of the same file are
+    present, the newest one is listed.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
+
+    newest = {}
+    for fname in filenames:
+        if fname.endswith(CHECKSUM_EXTENSIONS):
+            continue
+        file_version, timestamp, build_number = _snapshot_file_version(
+            fname, artifact_id, version
+        )
+        extension, classifier = _parse_extension_and_classifier(fname, artifact_id, file_version)
+        order = (timestamp or "", build_number or 0)
+        key = (classifier or "", extension)
+        if key not in newest or order > newest[key][0]:
+            updated = timestamp.replace(".", "") if timestamp else now
+            newest[key] = (order, classifier, extension, file_version, updated)
+
     root = Element("metadata")
     SubElement(root, "groupId").text = group_id
     SubElement(root, "artifactId").text = artifact_id
@@ -619,22 +666,26 @@ def _build_version_level_metadata_xml(group_id, artifact_id, version, filenames)
     versioning = SubElement(root, "versioning")
 
     snapshot = SubElement(versioning, "snapshot")
-    SubElement(snapshot, "localCopy").text = "true"
-
-    now = datetime.datetime.now(datetime.timezone.utc)
-    updated = now.strftime("%Y%m%d%H%M%S")
+    latest = max((entry[0] for entry in newest.values()), default=("", 0))
+    if latest[0]:
+        SubElement(snapshot, "timestamp").text = latest[0]
+        SubElement(snapshot, "buildNumber").text = str(latest[1])
+    else:
+        SubElement(snapshot, "localCopy").text = "true"
 
     sv_list = SubElement(versioning, "snapshotVersions")
-    for fname in sorted(filenames):
-        extension, classifier = _parse_extension_and_classifier(fname, artifact_id, version)
+    for _, classifier, extension, file_version, updated in sorted(
+        newest.values(), key=lambda entry: (entry[1] or "", entry[2])
+    ):
         sv = SubElement(sv_list, "snapshotVersion")
         if classifier:
             SubElement(sv, "classifier").text = classifier
         SubElement(sv, "extension").text = extension
-        SubElement(sv, "value").text = version
+        SubElement(sv, "value").text = file_version
         SubElement(sv, "updated").text = updated
 
-    SubElement(versioning, "lastUpdated").text = updated
+    last_updated = max((entry[4] for entry in newest.values()), default=now)
+    SubElement(versioning, "lastUpdated").text = last_updated
 
     return (
         b'<?xml version="1.0" encoding="UTF-8"?>\n'
