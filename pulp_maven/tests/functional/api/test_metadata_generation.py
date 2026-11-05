@@ -467,6 +467,67 @@ def test_version_level_metadata_generated_for_snapshot(
 
 
 @pytest.mark.parallel
+def test_version_level_metadata_lists_timestamped_snapshot_files(
+    maven_repo_factory,
+    maven_distribution_factory,
+    maven_artifact_api_client,
+    maven_repo_api_client,
+    random_artifact_factory,
+    monitor_task,
+    distribution_base_url,
+):
+    """Unique SNAPSHOT files are listed under the timestamped version their names carry.
+
+    Maven 3 and Gradle deploy "lib-1.0-20250801.082604-1.jar" rather than
+    "lib-1.0-SNAPSHOT.jar". Generated metadata has to name those files, or a client
+    resolving 1.0-SNAPSHOT asks for a file that does not exist. The POM and the JAR
+    of one deploy can carry different build numbers, and checksum files are not
+    listed.
+    """
+    repo = maven_repo_factory()
+    distro = maven_distribution_factory(repository=repo.pulp_href)
+    base_url = distribution_base_url(distro.base_url)
+    uid = _uid()
+    directory = f"com/{uid}/tslib/1.0-SNAPSHOT"
+    names = [
+        "tslib-1.0-20250801.082604-1.pom",
+        "tslib-1.0-20250801.082605-2.jar",
+        "tslib-1.0-20250801.082605-2.jar.sha1",
+        "tslib-1.0-20250801.082605-2-sources.jar",
+    ]
+    hrefs = []
+    for name in names:
+        artifact = random_artifact_factory(size=64)
+        hrefs.append(
+            maven_artifact_api_client.upload(
+                artifact=artifact.pulp_href, relative_path=f"{directory}/{name}"
+            ).pulp_href
+        )
+    monitor_task(
+        maven_repo_api_client.modify(repo.pulp_href, {"add_content_units": hrefs}).task
+    )
+
+    downloaded = download_file(urljoin(base_url, f"{directory}/maven-metadata.xml"))
+    assert downloaded.response_obj.status == 200
+    versioning = ElementTree.fromstring(downloaded.body).find("versioning")
+    assert versioning.find("snapshot").findtext("timestamp") == "20250801.082605"
+    assert versioning.find("snapshot").findtext("buildNumber") == "2"
+    listed = sorted(
+        (sv.findtext("classifier") or "", sv.findtext("extension"), sv.findtext("value"))
+        for sv in versioning.findall("snapshotVersions/snapshotVersion")
+    )
+    assert listed == [
+        ("", "jar", "1.0-20250801.082605-2"),
+        ("", "pom", "1.0-20250801.082604-1"),
+        ("sources", "jar", "1.0-20250801.082605-2"),
+    ]
+    for classifier, extension, value in listed:
+        suffix = f"-{classifier}" if classifier else ""
+        file_url = urljoin(base_url, f"{directory}/tslib-{value}{suffix}.{extension}")
+        assert download_file(file_url).response_obj.status == 200
+
+
+@pytest.mark.parallel
 def test_version_level_metadata_not_generated_for_release(
     maven_repo_factory,
     maven_artifact_api_client,
