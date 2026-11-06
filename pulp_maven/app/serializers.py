@@ -1,4 +1,5 @@
 import json
+import re
 from gettext import gettext as _
 
 import defusedxml.ElementTree as ET
@@ -11,6 +12,8 @@ from pulpcore.plugin.util import get_domain_pk
 
 from . import models
 from .versions import BUILD_SUFFIX_PATTERN, strip_build_suffix
+
+GROUP_ID_REGEX = re.compile(r"^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$")
 
 
 class MavenRepositorySerializer(platform.RepositorySerializer):
@@ -451,8 +454,27 @@ class MavenRemoteSerializer(platform.RemoteSerializer):
         validators = platform.RemoteSerializer.Meta.validators + [myValidator1, myValidator2]
     """
 
+    exclude_group_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=_(
+            "Maven groupIds (e.g. 'com.example') that are never requested from the upstream "
+            "during pull-through. Subgroups are excluded too. Locally available content is "
+            "still served; everything else under these groups returns 404."
+        ),
+    )
+
+    def validate_exclude_group_ids(self, value):
+        """Validate groupIds and drop duplicates while keeping their order."""
+        for group_id in value:
+            if not GROUP_ID_REGEX.match(group_id):
+                raise serializers.ValidationError(
+                    _("'{}' is not a valid Maven groupId.").format(group_id)
+                )
+        return list(dict.fromkeys(value))
+
     class Meta:
-        fields = platform.RemoteSerializer.Meta.fields
+        fields = platform.RemoteSerializer.Meta.fields + ("exclude_group_ids",)
         model = models.MavenRemote
 
 

@@ -1,0 +1,1 @@
+Added ``exclude_group_ids`` to ``MavenRemote``. Requests under an excluded groupId (and its subgroups) are served from local content when present and otherwise return 404 without contacting the upstream during pull-through.
