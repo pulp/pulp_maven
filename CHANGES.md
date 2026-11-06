@@ -8,6 +8,16 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.37.2 (2026-11-05) {: #0.37.2 }
+
+#### Bugfixes {: #0.37.2-bugfix }
+
+- Fixed a crash in multi-domain setups where `_save_prefixes_txt` and `_save_metadata_content` raised `MavenMetadata.DoesNotExist` when two domains produced metadata with identical content (same sha256). The global `unique=True` constraint on `MavenMetadata.sha256` has been replaced with a domain-scoped uniqueness via the existing `unique_together` constraint.
+  [#557](https://github.com/pulp/pulp_maven/issues/557)
+- Fixed uploads to path-indexed repositories in domains with their own storage failing with "Generated directory coverage is incomplete" after the first upload. Existing index pages are now read from the repository domain's storage, and pages that cannot be read are rebuilt from repository content instead of being dropped.
+
+---
+
 ## 0.37.1 (2026-11-04) {: #0.37.1 }
 
 #### Bugfixes {: #0.37.1-bugfix }
