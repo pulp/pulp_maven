@@ -1,0 +1,1 @@
+Fixed directory index pages that kept listing, or kept serving, directories whose content was removed: incremental generation no longer carries forward entries for subdirectories without content, ``repair_metadata`` now updates the pages for the metadata it removes or restores, and ``repair_index_pages`` also clears the pages of a repository left without other content.

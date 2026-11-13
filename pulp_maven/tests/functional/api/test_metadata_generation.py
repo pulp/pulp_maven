@@ -6,6 +6,7 @@ import uuid
 from urllib.parse import urljoin
 from xml.etree import ElementTree
 
+import aiohttp
 import pytest
 
 from pulp_maven.tests.functional.utils import download_file
@@ -1052,3 +1053,97 @@ def test_index_page_regenerated_on_artifact_removal(
         "rm-lib/1.0.0/ HTML changed after removing 2.0.0/ — "
         "unaffected directory page was unexpectedly regenerated"
     )
+
+
+@pytest.mark.parallel
+def test_index_pages_removed_for_directories_emptied_by_removal(
+    maven_repo_factory,
+    maven_distribution_factory,
+    maven_artifact_api_client,
+    maven_repo_api_client,
+    random_artifact_factory,
+    monitor_task,
+    distribution_base_url,
+):
+    """Removing the last artifact of a group drops the page of every directory it empties.
+
+    Removing com/{uid}/gone/1.0.0/* empties 1.0.0/, gone/ (its generated metadata goes
+    too) and com/{uid}/. None of them may keep serving a listing, and com/ must keep
+    listing only the sibling group that still has content.
+    """
+    repo = maven_repo_factory()
+    distro = maven_distribution_factory(repository=repo.pulp_href)
+    base_url = distribution_base_url(distro.base_url)
+    uid = _uid()
+
+    removed_hrefs = []
+    content_hrefs = []
+    for relative_path in (
+        f"com/{uid}/gone/1.0.0/gone-1.0.0.jar",
+        f"com/{uid}/gone/1.0.0/gone-1.0.0.pom",
+        f"com/k{uid}/keep/1.0.0/keep-1.0.0.jar",
+    ):
+        artifact = random_artifact_factory(size=64)
+        content = maven_artifact_api_client.upload(
+            artifact=artifact.pulp_href, relative_path=relative_path
+        )
+        content_hrefs.append(content.pulp_href)
+        if relative_path.startswith(f"com/{uid}/"):
+            removed_hrefs.append(content.pulp_href)
+    monitor_task(
+        maven_repo_api_client.modify(repo.pulp_href, {"add_content_units": content_hrefs}).task
+    )
+
+    emptied_dirs = [f"com/{uid}/", f"com/{uid}/gone/", f"com/{uid}/gone/1.0.0/"]
+    for directory in emptied_dirs:
+        assert download_file(urljoin(base_url, directory)).response_obj.status == 200
+    com_html = download_file(urljoin(base_url, "com/")).body.decode()
+    assert f'href="./{uid}/"' in com_html
+
+    monitor_task(
+        maven_repo_api_client.modify(repo.pulp_href, {"remove_content_units": removed_hrefs}).task
+    )
+
+    for directory in emptied_dirs:
+        with pytest.raises(aiohttp.ClientResponseError) as exc:
+            download_file(urljoin(base_url, directory))
+        assert exc.value.status == 404, f"{directory} still serves a listing after it emptied"
+
+    com_html = download_file(urljoin(base_url, "com/")).body.decode()
+    assert f'href="./{uid}/"' not in com_html, f"com/ still lists {uid}/ after it emptied"
+    assert f'href="./k{uid}/"' in com_html
+    keep_html = download_file(urljoin(base_url, f"com/k{uid}/keep/1.0.0/")).body.decode()
+    assert 'href="./keep-1.0.0.jar"' in keep_html
+
+
+@pytest.mark.parallel
+def test_index_pages_drop_subdirectories_without_content(
+    stale_index_page_repo,
+    maven_repo_api_client,
+    monitor_task,
+):
+    """A regenerated page does not keep listing a subdirectory that has no content.
+
+    The repository starts with pages listing ``stale/`` although nothing exists under it.
+    Adding content under ``kept/`` regenerates ``com/{uid}/``, which must then list only
+    ``kept/``. Removing that content again empties the repository, so no directory may
+    keep serving a listing.
+    """
+    repo, base_url, uid, kept_hrefs = stale_index_page_repo()
+    group_url = urljoin(base_url, f"com/{uid}/")
+    assert 'href="./stale/"' in download_file(group_url).body.decode()
+
+    monitor_task(
+        maven_repo_api_client.modify(repo.pulp_href, {"add_content_units": kept_hrefs}).task
+    )
+    group_html = download_file(group_url).body.decode()
+    assert 'href="./kept/"' in group_html
+    assert 'href="./stale/"' not in group_html, "stale/ is listed although it has no content"
+
+    monitor_task(
+        maven_repo_api_client.modify(repo.pulp_href, {"remove_content_units": kept_hrefs}).task
+    )
+    for directory in ("", "com/", f"com/{uid}/"):
+        with pytest.raises(aiohttp.ClientResponseError) as exc:
+            download_file(urljoin(base_url, directory))
+        assert exc.value.status == 404, f"{directory!r} still serves a listing in an empty repo"
