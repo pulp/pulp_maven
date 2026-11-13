@@ -44,3 +44,33 @@ def test_default_remote_policy_immediate(maven_remote_api_client, gen_object_wit
     remote_data = {"name": str(uuid.uuid4()), "url": "http://example.com"}
     remote = gen_object_with_cleanup(maven_remote_api_client, remote_data)
     assert remote.policy == "immediate"
+
+
+@pytest.mark.parallel
+def test_remote_exclude_group_ids(maven_remote_api_client, gen_object_with_cleanup, monitor_task):
+    remote_data = {
+        "name": str(uuid.uuid4()),
+        "url": "http://example.com",
+        "exclude_group_ids": ["com.example", "org.internal"],
+    }
+    remote = gen_object_with_cleanup(maven_remote_api_client, remote_data)
+    assert remote.exclude_group_ids == ["com.example", "org.internal"]
+
+    monitor_task(
+        maven_remote_api_client.partial_update(
+            remote.pulp_href, {"exclude_group_ids": ["org.internal"]}
+        ).task
+    )
+    remote = maven_remote_api_client.read(remote.pulp_href)
+    assert remote.exclude_group_ids == ["org.internal"]
+
+    with pytest.raises(ApiException) as exc:
+        maven_remote_api_client.partial_update(remote.pulp_href, {"exclude_group_ids": ["a/b"]})
+    assert exc.value.status == 400
+
+
+@pytest.mark.parallel
+def test_remote_exclude_group_ids_default_empty(maven_remote_api_client, gen_object_with_cleanup):
+    remote_data = {"name": str(uuid.uuid4()), "url": "http://example.com"}
+    remote = gen_object_with_cleanup(maven_remote_api_client, remote_data)
+    assert remote.exclude_group_ids == []
