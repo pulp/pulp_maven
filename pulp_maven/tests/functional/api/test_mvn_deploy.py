@@ -1,5 +1,6 @@
 import os
 import subprocess
+import time
 from urllib.parse import urljoin
 
 import pytest
@@ -67,8 +68,15 @@ def test_mvn_deploy_workflow(
         pytest.fail(msg)
 
     # Assert that the latest version is 12 (6 artifacts + 6 metadata including checksums)
-    repo = maven_repo_api_client.read(repo.pulp_href)
-    assert repo.latest_version_href.endswith("/versions/12/")
+    if pulp_settings.MAVEN_DEPLOY_BATCH:
+        # The deployed files are added in batches, so they share versions; wait for them.
+        deadline = time.monotonic() + pulp_settings.MAVEN_DEPLOY_BATCH_MAX_WAIT + 30
+        while maven_repo_api_client.read(repo.pulp_href).latest_version_href.endswith("/0/"):
+            assert time.monotonic() < deadline, "the deployed files were not committed in time"
+            time.sleep(0.5)
+    else:
+        repo = maven_repo_api_client.read(repo.pulp_href)
+        assert repo.latest_version_href.endswith("/versions/12/")
 
     # Assert that you can get the metadata for the simple-project
     pulp_unit_url = urljoin(

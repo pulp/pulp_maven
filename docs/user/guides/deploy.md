@@ -141,3 +141,35 @@ Add the following stanza to the `pom.xml` in your Maven project.
     [INFO] Finished at: 2023-03-10T16:13:06-05:00
     [INFO] ------------------------------------------------------------------------
     ```
+
+## Concurrent deploys
+
+Each deployed file is added to the repository by a task that holds the repository while it runs.
+An upload that arrives while another one holds it waits for its turn, for up to
+`MAVEN_DEPLOY_TASK_TIMEOUT` seconds (30 by default), and only then answers `429`. Maven, Gradle and
+sbt do not retry a refused upload, so raise the timeout if many builds publish into one repository
+at the same time.
+
+## Deploying in batches
+
+By default every deployed file, checksum files included, becomes its own repository version. A
+build publishes about a dozen files per module, so a release of a multi-module project leaves
+hundreds of versions, each of which regenerates `maven-metadata.xml` and the index pages and stores
+the list of the repository's content.
+
+With `MAVEN_DEPLOY_BATCH = True` in the Pulp settings, a deployed file is recorded as pending and
+the upload answers at once. A task then adds everything pending to the repository in one version,
+once no file has been deployed for `MAVEN_DEPLOY_BATCH_LINGER` seconds (1 by default), and at the
+latest `MAVEN_DEPLOY_BATCH_MAX_WAIT` seconds (10 by default) after the oldest pending file.
+
+What clients see does not change:
+
+- A pending file is served by the repository's distribution as soon as its upload is answered, so a
+  build can resolve what it has just published.
+- When the same path is deployed twice within a batch, the newer file is kept.
+- A `maven-metadata.xml` deployed by the client within a batch is kept rather than regenerated, as
+  it is when it arrives in a version of its own. This keeps SNAPSHOT versions deployed under
+  timestamped file names resolvable.
+
+What changes is that several files share one repository version, so versions no longer correspond
+to single uploads.
