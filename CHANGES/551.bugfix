@@ -1,0 +1,8 @@
+Re-deploying the same Maven coordinates with different content now replaces what
+the repository serves. Previously the second upload was discarded while still
+reporting success, so the repository went on serving the file deployed first,
+which broke snapshot development silently: nothing indicated the new build had
+not been stored. Artifacts are now distinguished by checksum as well as
+coordinates, so re-uploading identical content remains a no-op and creates no new
+repository version, while different content supersedes the previous file. The
+artifact checksum is exposed on the content API.

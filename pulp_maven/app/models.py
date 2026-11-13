@@ -119,10 +119,23 @@ class MavenArtifact(MavenContentMixin, Content):
     artifact_id = models.CharField(max_length=255, null=False)
     version = models.CharField(max_length=255, null=False)
     filename = models.CharField(max_length=255, null=False)
+    # Part of the uniqueness key, as it already is for metadata below. Without it a
+    # second upload to the same coordinates resolves to the first unit and its
+    # content is discarded while the upload still reports success. With it, the
+    # second upload is a distinct unit, and `repo_key_fields` (which deliberately
+    # excludes the checksum) makes adding it to a repository displace the first.
+    sha256 = models.CharField(max_length=64, null=False, default="", db_index=True)
 
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
-        unique_together = ("group_id", "artifact_id", "version", "filename", "_pulp_domain")
+        unique_together = (
+            "group_id",
+            "artifact_id",
+            "version",
+            "filename",
+            "sha256",
+            "_pulp_domain",
+        )
 
     @staticmethod
     def init_from_artifact_and_relative_path(artifact, relative_path):
@@ -142,7 +155,11 @@ class MavenArtifact(MavenContentMixin, Content):
         )
 
         return MavenArtifact(
-            group_id=group_id, artifact_id=artifact_id, version=version, filename=f_name
+            group_id=group_id,
+            artifact_id=artifact_id,
+            version=version,
+            filename=f_name,
+            sha256=artifact.sha256,
         )
 
 
