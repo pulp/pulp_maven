@@ -49,8 +49,15 @@ class MavenContentMixin:
         """
         sub_path, filename = path.split(relative_path)
         sub_path, version = path.split(sub_path)
+        artifact_candidate = path.basename(sub_path)
         pattern = re.compile(r"(?=.*\d)[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*")
-        if pattern.match(version) is None:
+        # A file in a version directory is named <artifactId>-<version>..., which marks the
+        # directory as a version whatever it looks like: Maven versions are free-form, and
+        # release-train names such as "Neumann-RELEASE" carry no digit at all.
+        named_by_version = bool(artifact_candidate and version) and filename.startswith(
+            "{}-{}".format(artifact_candidate, version)
+        )
+        if not named_by_version and pattern.match(version) is None:
             artifact_id = version
             version = None
             group_id = sub_path.replace("/", ".")
