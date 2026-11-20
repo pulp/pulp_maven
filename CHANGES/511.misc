@@ -1,0 +1,1 @@
+Removed the obsolete pulp-smash dependency and CI configuration from functional tests.
