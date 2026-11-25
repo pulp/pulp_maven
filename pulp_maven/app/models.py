@@ -24,7 +24,13 @@ from pulp_maven.app.bloom import (
     bloom_filter_might_contain,
     delete_bloom_filter,
 )
-from pulp_maven.app.version_utils import remove_duplicates
+from pulp_maven.app.version_utils import (
+    bulk_create_content,
+    changed_in,
+    pk_queryset,
+    present_in,
+    remove_duplicates,
+)
 
 logger = getLogger(__name__)
 
@@ -330,6 +336,84 @@ class MavenIndexPage(Content):
     class Meta:
         default_related_name = "%(app_label)s_%(model_name)s"
         unique_together = ("path", "sha256", "_pulp_domain")
+
+
+GAV_FIELDS = ("group_id", "artifact_id", "version")
+GA_FIELDS = ("group_id", "artifact_id")
+
+
+def _same_coordinates(fields, artifacts):
+    """Filter for rows sharing ``fields`` with a row of the ``artifacts`` queryset.
+
+    A correlated subquery keeps the coordinates in the database; an ``OR`` of one term per
+    coordinate tuple makes PostgreSQL test every candidate row against every term. Pass a single
+    queryset: PostgreSQL can only turn an ``EXISTS`` into a join when it isn't ``OR``-ed with
+    another one.
+    """
+    return Exists(artifacts.filter(**{field: OuterRef(field) for field in fields}))
+
+
+def _parse_poms(content_artifacts):
+    """Parse POM files concurrently; map each key of ``content_artifacts`` to metadata or None."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from pulpcore.plugin.util import get_domain, set_domain
+
+    from pulp_maven.app.pom import parse_pom_metadata
+
+    if not content_artifacts:
+        return {}
+    # The domain (and with it the storage backend) is a ContextVar that worker threads don't
+    # inherit.
+    domain = get_domain()
+
+    def parse(ca):
+        set_domain(domain)
+        try:
+            with ca.artifact.file.open("rb") as pom:
+                return parse_pom_metadata(pom)
+        except Exception:
+            logger.warning("Failed to parse POM metadata from %s", ca.artifact.file.name)
+            return None
+
+    keys = list(content_artifacts)
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        return dict(zip(keys, pool.map(parse, (content_artifacts[key] for key in keys))))
+
+
+def _read_prefixes_txt(pks):
+    """Return the prefixes listed in the version's single prefixes.txt, or None if unavailable."""
+    from pulpcore.plugin.models import ContentArtifact
+
+    if len(pks) != 1:
+        return None
+    ca = ContentArtifact.objects.filter(content_id=pks[0]).select_related("artifact").first()
+    if ca is None or ca.artifact is None:
+        return None
+    try:
+        with ca.artifact.file.open("rb") as prefixes_txt:
+            lines = prefixes_txt.read().decode("utf-8").splitlines()
+    except Exception:
+        logger.warning("Failed to read %s", ca.artifact.file.name)
+        return None
+    return {line for line in lines if line and not line.startswith("#")}
+
+
+def _prefix_in_version(prefix, present):
+    """Whether any artifact matching ``present`` has a group_id with the given prefix."""
+    from pulp_maven.app.tasks import _compute_prefix
+
+    head = prefix.lstrip("/")
+    if "/" not in head:  # A one-segment prefix only comes from that exact group_id.
+        return MavenArtifact.objects.filter(present, group_id=head).exists()
+    # Superset of the matches ("a.b" also matches "a.bc"), checked exactly while streaming.
+    candidates = MavenArtifact.objects.filter(present).filter(
+        Q(group_id__startswith=head.replace("/", ".")) | Q(group_id__startswith=head)
+    )
+    return any(
+        _compute_prefix(group_id) == prefix
+        for group_id in candidates.values_list("group_id", flat=True).iterator(chunk_size=1000)
+    )
 
 
 def _bulk_get_or_create_index_pages(dir_to_artifact, pulp_domain):
@@ -662,105 +746,108 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
 
     def _ensure_packages(self, new_version):
         """Manage MavenPackage version membership. Creates missing packages when a POM is available."""
-        from django.db.models import Q
+        from django.db.models import F, Value
+        from django.db.models.functions import Concat
 
         from pulpcore.plugin.models import ContentArtifact
 
-        affected_gavs = set()
-        for qs in (
-            MavenArtifact.objects.filter(pk__in=new_version.added()),
-            MavenArtifact.objects.filter(pk__in=new_version.removed()),
-        ):
-            for vals in qs.values("group_id", "artifact_id", "version").distinct().iterator():
-                affected_gavs.add((vals["group_id"], vals["artifact_id"], vals["version"]))
-
-        if not affected_gavs:
-            return
-
-        gavs_q = Q()
-        for g, a, v in affected_gavs:
-            gavs_q |= Q(group_id=g, artifact_id=a, version=v)
-
-        live_gavs = set(
-            MavenArtifact.objects.filter(pk__in=new_version.content)
-            .filter(gavs_q)
-            .values_list("group_id", "artifact_id", "version")
+        removed_artifacts = changed_in(new_version, MavenArtifact, added=False)
+        added_gavs = set(
+            changed_in(new_version, MavenArtifact, removed=False)
+            .values_list(*GAV_FIELDS)
             .distinct()
         )
+        removed_gavs = set(removed_artifacts.values_list(*GAV_FIELDS).distinct()) - added_gavs
+        if not added_gavs and not removed_gavs:
+            return
+
+        present = present_in(new_version)
+        changed_gav = _same_coordinates(GAV_FIELDS, changed_in(new_version, MavenArtifact))
+        # Added files are in the version, so their GAVs are live. A GAV whose files were removed
+        # stays live while any of its files remain.
+        live_gavs = set(added_gavs)
+        if removed_gavs:
+            live_gavs.update(
+                MavenArtifact.objects.filter(
+                    present, _same_coordinates(GAV_FIELDS, removed_artifacts)
+                )
+                .values_list(*GAV_FIELDS)
+                .distinct()
+            )
 
         existing_pkgs = {
-            (p.group_id, p.artifact_id, p.version): p
-            for p in MavenPackage.objects.filter(gavs_q, _pulp_domain=self.pulp_domain)
+            (group_id, artifact_id, version): pk
+            for group_id, artifact_id, version, pk in MavenPackage.objects.filter(
+                changed_gav, _pulp_domain=self.pulp_domain
+            ).values_list(*GAV_FIELDS, "pk")
         }
-
         gavs_needing_pom = {
             gav for gav in live_gavs if gav not in existing_pkgs or gav[2].endswith("-SNAPSHOT")
         }
 
         pom_cas = {}
         if gavs_needing_pom:
-            pom_q = Q()
-            for g, a, v in gavs_needing_pom:
-                pom_q |= Q(
-                    group_id=g,
-                    artifact_id=a,
-                    version=v,
-                    filename=f"{a}-{v}.pom",
+            pom_pk_to_gav = {}
+            for pk, *gav in MavenArtifact.objects.filter(
+                present,
+                changed_gav,
+                filename=Concat(F("artifact_id"), Value("-"), F("version"), Value(".pom")),
+            ).values_list("pk", *GAV_FIELDS):
+                if tuple(gav) in gavs_needing_pom:
+                    pom_pk_to_gav[pk] = tuple(gav)
+            for ca in ContentArtifact.objects.filter(
+                content_id__in=pk_queryset(Content, pom_pk_to_gav).values("pk"),
+                artifact__isnull=False,
+            ).select_related("artifact"):
+                pom_cas[pom_pk_to_gav[ca.content_id]] = ca
+        pom_meta = _parse_poms(pom_cas)
+
+        new_pkgs = []
+        refreshed_pkgs = []
+        for gav, ca in pom_cas.items():
+            meta = pom_meta.get(gav)
+            if gav not in existing_pkgs:
+                pkg = MavenPackage(
+                    group_id=gav[0],
+                    artifact_id=gav[1],
+                    version=gav[2],
+                    _pulp_domain=self.pulp_domain,
+                    pulp_domain=self.pulp_domain,
                 )
-            pom_content_to_gav = {}
-            for ma in (
-                MavenArtifact.objects.filter(pk__in=new_version.content).filter(pom_q).iterator()
-            ):
-                pom_content_to_gav[ma.pk] = (
-                    ma.group_id,
-                    ma.artifact_id,
-                    ma.version,
+                if meta:
+                    pkg._apply_pom_meta(meta)
+                new_pkgs.append(pkg)
+            elif meta:  # A SNAPSHOT POM may have changed.
+                pkg = MavenPackage(
+                    pk=existing_pkgs[gav],
+                    _pulp_domain=self.pulp_domain,
+                    pulp_domain=self.pulp_domain,
                 )
-            for ca in (
-                ContentArtifact.objects.filter(content_id__in=pom_content_to_gav.keys())
-                .select_related("artifact")
-                .iterator()
-            ):
-                gav = pom_content_to_gav.get(ca.content_id)
-                if gav and ca.artifact:
-                    pom_cas[gav] = ca
-
-        package_pks_to_add = []
-        for gav in live_gavs:
-            pkg = existing_pkgs.get(gav)
-            if pkg and gav not in gavs_needing_pom:
-                package_pks_to_add.append(pkg.pk)
-                continue
-
-            ca = pom_cas.get(gav)
-            if not ca:
-                if pkg:
-                    package_pks_to_add.append(pkg.pk)
-                continue
-
-            pkg, created = MavenPackage.objects.get_or_create(
-                group_id=gav[0],
-                artifact_id=gav[1],
-                version=gav[2],
-                _pulp_domain=self.pulp_domain,
+                pkg._apply_pom_meta(meta)
+                refreshed_pkgs.append(pkg)
+        new_pkgs.sort(key=lambda pkg: (pkg.group_id, pkg.artifact_id, pkg.version))
+        for pkg in bulk_create_content(new_pkgs):
+            existing_pkgs[(pkg.group_id, pkg.artifact_id, pkg.version)] = pkg.pk
+        if refreshed_pkgs:
+            MavenPackage.objects.bulk_update(
+                refreshed_pkgs, MavenPackage.POM_META_FIELDS, batch_size=500
             )
-            if created or gav[2].endswith("-SNAPSHOT"):
-                pkg.update_from_pom(ca.artifact)
-                pkg.save()
-            package_pks_to_add.append(pkg.pk)
 
-        if package_pks_to_add:
-            new_version.add_content(MavenPackage.objects.filter(pk__in=package_pks_to_add))
+        package_pks = [existing_pkgs[gav] for gav in live_gavs if gav in existing_pkgs]
+        if package_pks:
+            new_version.add_content(pk_queryset(MavenPackage, package_pks))
 
-        dead_gavs = affected_gavs - live_gavs
+        dead_gavs = removed_gavs - live_gavs
         if dead_gavs:
-            dead_q = Q()
-            for g, a, v in dead_gavs:
-                dead_q |= Q(group_id=g, artifact_id=a, version=v)
-            dead_pkgs = MavenPackage.objects.filter(
-                pk__in=new_version.content, _pulp_domain=self.pulp_domain
-            ).filter(dead_q)
-            new_version.remove_content(dead_pkgs)
+            dead_pks = [
+                pk
+                for pk, *gav in MavenPackage.objects.filter(
+                    present, _same_coordinates(GAV_FIELDS, removed_artifacts)
+                ).values_list("pk", *GAV_FIELDS)
+                if tuple(gav) in dead_gavs
+            ]
+            if dead_pks:
+                new_version.remove_content(pk_queryset(MavenPackage, dead_pks))
 
     def _ensure_packages_full_scan(self, new_version):
         """Reconcile MavenPackage membership across the whole version.
@@ -892,158 +979,117 @@ class MavenRepository(Repository, AutoAddObjPermsMixin):
 
     def _generate_metadata(self, new_version):
         """Generate maven-metadata.xml and checksums for affected (group_id, artifact_id) pairs."""
-        from collections import defaultdict
-
-        from django.db.models import Q
-
         from pulp_maven.app.tasks import (
             METADATA_FILENAMES,
+            _metadata_entry,
+            _save_metadata_batch,
+            _version_level_metadata_entry,
+        )
+
+        changed_artifacts = changed_in(new_version, MavenArtifact)
+        added_gavs = set(
+            changed_in(new_version, MavenArtifact, removed=False)
+            .values_list(*GAV_FIELDS)
+            .distinct()
+        )
+        removed_gavs = set(
+            changed_in(new_version, MavenArtifact, added=False).values_list(*GAV_FIELDS).distinct()
+        )
+        if not added_gavs and not removed_gavs:
+            return
+
+        present = present_in(new_version)
+        changed_pair = _same_coordinates(GA_FIELDS, changed_artifacts)
+        stale_pks = set(
+            MavenMetadata.objects.filter(
+                present, changed_pair, version=None, filename__in=METADATA_FILENAMES
+            ).values_list("pk", flat=True)
+        )
+        versions_by_pair = defaultdict(set)
+        for group_id, artifact_id, version in (
+            MavenArtifact.objects.filter(present, changed_pair)
+            .values_list(*GAV_FIELDS)
+            .distinct()
+            .iterator()
+        ):
+            versions_by_pair[(group_id, artifact_id)].add(version)
+        entries = [
+            _metadata_entry(group_id, artifact_id, sorted(versions))
+            for (group_id, artifact_id), versions in versions_by_pair.items()
+        ]
+
+        if any(version.endswith("-SNAPSHOT") for _, _, version in added_gavs | removed_gavs):
+            changed_gav = _same_coordinates(GAV_FIELDS, changed_artifacts)
+            stale_pks.update(
+                MavenMetadata.objects.filter(
+                    present,
+                    changed_gav,
+                    version__endswith="-SNAPSHOT",
+                    filename__in=METADATA_FILENAMES,
+                ).values_list("pk", flat=True)
+            )
+            snapshot_filenames = defaultdict(list)
+            for group_id, artifact_id, version, filename in MavenArtifact.objects.filter(
+                present, changed_gav, version__endswith="-SNAPSHOT"
+            ).values_list(*GAV_FIELDS, "filename"):
+                snapshot_filenames[(group_id, artifact_id, version)].append(filename)
+            entries.extend(
+                _version_level_metadata_entry(*gav, filenames)
+                for gav, filenames in snapshot_filenames.items()
+            )
+
+        new_pks = _save_metadata_batch(entries, self.pulp_domain)
+        old_prefixes_pks, new_prefixes_pks = self._update_prefixes_txt(
+            new_version, added_gavs, removed_gavs
+        )
+        # One removal and one addition: each rewrites the version's whole content list.
+        to_remove = (stale_pks | set(old_prefixes_pks)) - set(new_pks)
+        if to_remove:
+            new_version.remove_content(pk_queryset(MavenMetadata, to_remove))
+        to_add = new_pks + new_prefixes_pks
+        if to_add:
+            new_version.add_content(pk_queryset(MavenMetadata, to_add))
+
+    def _update_prefixes_txt(self, new_version, added_gavs, removed_gavs):
+        """Decide whether .meta/prefixes.txt changes; return (pks to remove, pks to add).
+
+        Prefixes of added artifacts are checked against the current file, and only prefixes of
+        removed artifacts are looked up in the version, so the full scan of every group_id in the
+        version only runs when the prefix set actually changes (or there is no file yet).
+        """
+        from pulp_maven.app.tasks import (
             PREFIXES_TXT_FILENAME,
             _compute_prefix,
-            _create_metadata_content,
-            _create_version_level_metadata_content,
             _save_prefixes_txt,
         )
 
-        affected_pairs = set()
-        affected_snapshot_triples = set()
-        for qs in (
-            MavenArtifact.objects.filter(pk__in=new_version.added()),
-            MavenArtifact.objects.filter(pk__in=new_version.removed()),
-        ):
-            for vals in qs.values("group_id", "artifact_id", "version").distinct().iterator():
-                affected_pairs.add((vals["group_id"], vals["artifact_id"]))
-                if vals["version"] and vals["version"].endswith("-SNAPSHOT"):
-                    affected_snapshot_triples.add(
-                        (vals["group_id"], vals["artifact_id"], vals["version"])
-                    )
-
-        if not affected_pairs:
-            return
-
-        pairs_q = Q()
-        for group_id, artifact_id in affected_pairs:
-            pairs_q |= Q(group_id=group_id, artifact_id=artifact_id)
-
-        stale_pks = list(
-            MavenMetadata.objects.filter(
-                pk__in=new_version.content,
-                version=None,
-                filename__in=METADATA_FILENAMES,
+        present = present_in(new_version)
+        old_pks = list(
+            MavenMetadata.objects.filter(present, filename=PREFIXES_TXT_FILENAME).values_list(
+                "pk", flat=True
             )
-            .filter(pairs_q)
-            .values_list("pk", flat=True)
         )
-        if stale_pks:
-            new_version.remove_content(MavenMetadata.objects.filter(pk__in=stale_pks))
+        old_prefixes = _read_prefixes_txt(old_pks)
+        added_prefixes = {_compute_prefix(group_id) for group_id, _, _ in added_gavs}
+        removed_prefixes = {_compute_prefix(group_id) for group_id, _, _ in removed_gavs}
+        if old_prefixes is not None:
+            if added_prefixes <= old_prefixes and all(
+                _prefix_in_version(prefix, present)
+                for prefix in (removed_prefixes - added_prefixes) & old_prefixes
+            ):
+                return [], []
 
-        versions_by_pair = defaultdict(set)
-        for row in (
-            MavenArtifact.objects.filter(pk__in=new_version.content)
-            .filter(pairs_q)
-            .values("group_id", "artifact_id", "version")
-            .distinct()
-        ):
-            versions_by_pair[(row["group_id"], row["artifact_id"])].add(row["version"])
-
-        new_metadata_pks = []
-
-        for (group_id, artifact_id), version_set in versions_by_pair.items():
-            versions = sorted(version_set)
-            if not versions:
-                continue
-            new_metadata_pks.extend(
-                _create_metadata_content(group_id, artifact_id, versions, self.pulp_domain)
-            )
-
-        if affected_snapshot_triples:
-            triples_q = Q()
-            for group_id, artifact_id, version in affected_snapshot_triples:
-                triples_q |= Q(group_id=group_id, artifact_id=artifact_id, version=version)
-
-            stale_version_pks = list(
-                MavenMetadata.objects.filter(
-                    pk__in=new_version.content,
-                    filename__in=METADATA_FILENAMES,
-                )
-                .filter(triples_q)
-                .values_list("pk", flat=True)
-            )
-            if stale_version_pks:
-                new_version.remove_content(MavenMetadata.objects.filter(pk__in=stale_version_pks))
-
-            for group_id, artifact_id, version in affected_snapshot_triples:
-                filenames = list(
-                    MavenArtifact.objects.filter(
-                        pk__in=new_version.content,
-                        group_id=group_id,
-                        artifact_id=artifact_id,
-                        version=version,
-                    ).values_list("filename", flat=True)
-                )
-                if not filenames:
-                    continue
-                new_metadata_pks.extend(
-                    _create_version_level_metadata_content(
-                        group_id, artifact_id, version, filenames, self.pulp_domain
-                    )
-                )
-
-        if new_metadata_pks:
-            new_version.add_content(MavenMetadata.objects.filter(pk__in=new_metadata_pks))
-
-        # --- prefixes.txt generation ---
-        # Compute prefixes from the affected group_ids. If the set of
-        # prefixes in the repository changed (new prefixes appeared or an
-        # existing prefix lost all its artifacts), regenerate the file.
-
-        # Changed artifact prefixes (from removed or added artifacts)
-        affected_prefixes = {_compute_prefix(gid) for gid, _ in affected_pairs}
-
-        # Get all group_ids currently in the version (across ALL artifacts,
-        # not just the affected ones) so we can check whether the affected
-        # prefixes are truly new or truly gone.
-        all_group_ids = set(
-            MavenArtifact.objects.filter(pk__in=new_version.content)
+        current_prefixes = {
+            _compute_prefix(group_id)
+            for group_id in MavenArtifact.objects.filter(present)
             .values_list("group_id", flat=True)
             .distinct()
-        )
-        # All prefixes in the repo now
-        current_prefixes = {_compute_prefix(gid) for gid in all_group_ids}
-
-        unaffected_group_ids = set(
-            MavenArtifact.objects.filter(pk__in=new_version.content)
-            .exclude(pairs_q)
-            .values_list("group_id", flat=True)
-            .distinct()
-        )
-
-        unaffected_prefixes = {_compute_prefix(gid) for gid in unaffected_group_ids}
-
-        # affected prefixes not in unaffected prefix list? -> prefixes added
-        # affected prefixes not in current prefix list? -> prefixes removed
-        prefix_set_changed = bool(affected_prefixes - unaffected_prefixes) or bool(
-            affected_prefixes - current_prefixes
-        )
-
-        # Also check if this repository version has a prefixes.txt file.
-        # This catches the scenario where this logic runs for the first time
-        # on a repository that has never had a 'prefixes.txt' file and adds
-        # an artifact under an already existing prefix, so no file is generated.
-        old_prefixes_pks = list(
-            MavenMetadata.objects.filter(
-                pk__in=new_version.content,
-                filename=PREFIXES_TXT_FILENAME,
-            ).values_list("pk", flat=True)
-        )
-        if prefix_set_changed or not old_prefixes_pks:
-            # Remove old prefixes.txt from the version
-            if old_prefixes_pks:
-                new_version.remove_content(MavenMetadata.objects.filter(pk__in=old_prefixes_pks))
-
-            if current_prefixes:
-                prefixes_pks = _save_prefixes_txt(current_prefixes, self.pulp_domain)
-                new_version.add_content(MavenMetadata.objects.filter(pk__in=prefixes_pks))
+            .iterator()
+        }
+        if current_prefixes == old_prefixes:
+            return [], []
+        new_pks = _save_prefixes_txt(current_prefixes, self.pulp_domain) if current_prefixes else []
+        return old_pks, new_pks
 
     def _generate_index_pages(self, new_version, affected_paths=None):
         """Generate HTML index pages for directory paths touched by this version.
