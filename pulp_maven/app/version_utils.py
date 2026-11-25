@@ -4,17 +4,21 @@
 PostgreSQL estimates at a handful of rows. Combined with a filter on many coordinates, the planner
 then checks every unit of the version against every coordinate, which takes minutes on
 repositories with a million units. The helpers here express version membership through
-``RepositoryContent`` instead and keep coordinates in correlated subqueries rather than giant
-``OR`` filters.
+``RepositoryContent`` instead, keep coordinates in correlated subqueries rather than giant ``OR``
+filters, and create content in batches rather than one unit (four statements) at a time.
 """
 
 import itertools
 
-from django.db.models import Exists, OuterRef, UniqueConstraint
+from django.db import IntegrityError, connection, transaction
+from django.db.models import Exists, OuterRef, Q, UniqueConstraint
 from django.db.models.expressions import RawSQL
 
 from pulpcore.plugin.models import Content, RepositoryContent
 from pulpcore.plugin.repo_version_utils import remove_duplicates as core_remove_duplicates
+
+# PostgreSQL accepts at most 65535 bind parameters per statement.
+MAX_QUERY_PARAMS = 65535
 
 
 def present_in(new_version, exclude_added=False):
@@ -36,6 +40,17 @@ def present_in(new_version, exclude_added=False):
     if exclude_added:
         relations = relations.exclude(version_added=new_version)
     return Exists(relations)
+
+
+def changed_in(new_version, model, added=True, removed=True):
+    """Return the ``model`` units that ``new_version`` added and/or removed (in one subquery)."""
+    condition = Q()
+    if added:
+        condition |= Q(version_added=new_version)
+    if removed:
+        condition |= Q(version_removed=new_version)
+    relations = RepositoryContent.objects.filter(condition, repository_id=new_version.repository_id)
+    return model.objects.filter(pk__in=relations.values("content_id"))
 
 
 def pk_queryset(model, pks):
@@ -100,3 +115,62 @@ def _duplicates_impossible(model):
         and constraint.condition is None
     ]
     return any(fields <= keys for fields in unique_sets)
+
+
+def bulk_create_content(units):
+    """Save new units of one Content detail model with two multi-row INSERTs per batch.
+
+    Django's ``bulk_create`` refuses multi-table models, so pulpcore saves content one unit at a
+    time (four statements each). Content primary keys are generated client-side, so the master and
+    detail rows can be inserted in bulk. If a batch collides with existing rows (another task
+    created the same unit), that batch falls back to get-or-create per unit.
+
+    Returns:
+        The saved units, with existing rows in place of colliding ones.
+    """
+    units = list(units)
+    if not units:
+        return []
+    model = type(units[0])
+    master_fields = Content._meta.local_concrete_fields
+    detail_fields = model._meta.local_concrete_fields
+    batch_size = MAX_QUERY_PARAMS // max(len(master_fields), len(detail_fields))
+    saved = []
+    for start in range(0, len(units), batch_size):
+        batch = units[start : start + batch_size]
+        for unit in batch:
+            unit.content_ptr_id = unit.pulp_id
+        try:
+            with transaction.atomic():
+                _insert_rows(Content, master_fields, batch)
+                _insert_rows(model, detail_fields, batch)
+        except IntegrityError:
+            for index, unit in enumerate(batch):
+                try:
+                    with transaction.atomic():
+                        unit.save()
+                except IntegrityError:
+                    batch[index] = model.objects.get(unit.q())
+        else:
+            for unit in batch:
+                unit._state.adding = False
+                unit._state.db = connection.alias
+        saved.extend(batch)
+    return saved
+
+
+def _insert_rows(model, fields, units):
+    values = []
+    for unit in units:
+        values.extend(
+            field.get_db_prep_save(field.pre_save(unit, add=True), connection) for field in fields
+        )
+    quote = connection.ops.quote_name
+    row = f"({', '.join(['%s'] * len(fields))})"
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"INSERT INTO {quote(model._meta.db_table)} "
+            f"({', '.join(quote(field.column) for field in fields)}) "
+            f"VALUES {', '.join([row] * len(units))}",
+            values,
+        )

@@ -9,7 +9,7 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 
 from asgiref.sync import sync_to_async
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef
 from redis.exceptions import RedisError
 
 from pulpcore.plugin.models import (
@@ -37,6 +37,7 @@ from pulp_maven.app.models import (
     MavenRepository,
 )
 from pulp_maven.app.util import PulpListingParser
+from pulp_maven.app.version_utils import bulk_create_content, present_in
 
 log = logging.getLogger(__name__)
 
@@ -325,41 +326,25 @@ def repair_metadata(repository_pk):
     _pull_through_ctx.active = True
     try:
         with repository.new_version() as new_version:
-            new_metadata_pks = []
-
-            for (group_id, artifact_id), version_set in all_pairs.items():
-                versions = sorted(version_set)
-                if not versions:
-                    continue
-                new_metadata_pks.extend(
-                    _create_metadata_content(
-                        group_id, artifact_id, versions, repository.pulp_domain
-                    )
+            entries = [
+                _metadata_entry(group_id, artifact_id, sorted(version_set))
+                for (group_id, artifact_id), version_set in all_pairs.items()
+                if version_set
+            ]
+            snapshot_filenames = defaultdict(list)
+            for group_id, artifact_id, version, filename in (
+                MavenArtifact.objects.filter(
+                    pk__in=latest_version.content, version__endswith="-SNAPSHOT"
                 )
-
-            for (group_id, artifact_id), version_set in all_pairs.items():
-                for version in sorted(version_set):
-                    if not version.endswith("-SNAPSHOT"):
-                        continue
-                    filenames = list(
-                        MavenArtifact.objects.filter(
-                            pk__in=new_version.content,
-                            group_id=group_id,
-                            artifact_id=artifact_id,
-                            version=version,
-                        ).values_list("filename", flat=True)
-                    )
-                    if not filenames:
-                        continue
-                    new_metadata_pks.extend(
-                        _create_version_level_metadata_content(
-                            group_id,
-                            artifact_id,
-                            version,
-                            filenames,
-                            repository.pulp_domain,
-                        )
-                    )
+                .values_list("group_id", "artifact_id", "version", "filename")
+                .iterator()
+            ):
+                snapshot_filenames[(group_id, artifact_id, version)].append(filename)
+            entries.extend(
+                _version_level_metadata_entry(*gav, filenames)
+                for gav, filenames in snapshot_filenames.items()
+            )
+            new_metadata_pks = _save_metadata_batch(entries, repository.pulp_domain)
 
             new_pks = set(new_metadata_pks)
 
@@ -369,12 +354,15 @@ def repair_metadata(repository_pk):
             orphaned = MavenMetadata.objects.filter(
                 pk__in=new_version.content,
                 filename__in=METADATA_FILENAMES,
+            ).exclude(
+                Exists(
+                    MavenArtifact.objects.filter(
+                        present_in(new_version),
+                        group_id=OuterRef("group_id"),
+                        artifact_id=OuterRef("artifact_id"),
+                    )
+                )
             )
-            if all_pairs:
-                valid_pairs_q = Q()
-                for group_id, artifact_id in all_pairs:
-                    valid_pairs_q |= Q(group_id=group_id, artifact_id=artifact_id)
-                orphaned = orphaned.exclude(valid_pairs_q)
             new_version.remove_content(orphaned)
 
             # Remove stale repo-level metadata for active pairs.
@@ -496,69 +484,84 @@ def repair_index_pages(repository_pk):
     )
 
 
-def _save_metadata_content(group_id, artifact_id, version, base_path, metadata_xml, pulp_domain):
-    """Save maven-metadata.xml and checksum files as MavenMetadata content.
+def _metadata_files(group_id, artifact_id, version, base_path, metadata_xml):
+    """Yield (coordinates, filename, relative_path, bytes) for a metadata file and its checksums."""
+    coordinates = (group_id, artifact_id, version)
+    yield coordinates, "maven-metadata.xml", base_path, metadata_xml
+    for algorithm in ("md5", "sha1", "sha256"):
+        checksum = hashlib.new(algorithm, metadata_xml).hexdigest().encode("utf-8")
+        yield coordinates, f"maven-metadata.xml.{algorithm}", f"{base_path}.{algorithm}", checksum
 
-    Returns a list of MavenMetadata primary keys.
+
+def _save_metadata_batch(entries, pulp_domain):
+    """Save maven-metadata.xml files and their checksums as MavenMetadata content in bulk.
+
+    Args:
+        entries: iterable of (group_id, artifact_id, version, base_path, metadata_xml).
+        pulp_domain: the Domain to create the content in.
+
+    Returns:
+        A list of MavenMetadata primary keys, existing units included.
     """
-    xml_artifact = _save_artifact(metadata_xml, pulp_domain)
-
-    files_to_create = [("maven-metadata.xml", base_path, xml_artifact)]
-    for ext, algo in [(".md5", "md5"), (".sha1", "sha1"), (".sha256", "sha256")]:
-        checksum_value = getattr(xml_artifact, algo)
-        if checksum_value is None:
-            checksum_value = hashlib.new(algo, metadata_xml).hexdigest()
-        checksum_bytes = checksum_value.encode("utf-8")
-        checksum_artifact = _save_artifact(checksum_bytes, pulp_domain)
-        files_to_create.append((f"maven-metadata.xml{ext}", f"{base_path}{ext}", checksum_artifact))
-
+    files = [file for entry in entries for file in _metadata_files(*entry)]
     pks = []
-    for filename, relative_path, artifact in files_to_create:
-        metadata_content = MavenMetadata(
-            group_id=group_id,
-            artifact_id=artifact_id,
-            version=version,
-            filename=filename,
-            sha256=artifact.sha256,
-            _pulp_domain=pulp_domain,
-        )
-        try:
-            with transaction.atomic():
-                metadata_content.save()
-        except IntegrityError:
-            metadata_content = MavenMetadata.objects.get(
-                group_id=group_id,
-                artifact_id=artifact_id,
-                version=version,
-                filename=filename,
-                sha256=artifact.sha256,
-                _pulp_domain=pulp_domain,
-            )
-
-        try:
-            with transaction.atomic():
-                ContentArtifact.objects.create(
-                    artifact=artifact,
-                    content=metadata_content,
-                    relative_path=relative_path,
+    for start in range(0, len(files), 4000):
+        chunk = files[start : start + 4000]
+        artifacts = _save_artifacts_batch(((path, data) for _, _, path, data in chunk), pulp_domain)
+        sha256s = list({artifact.sha256 for artifact in artifacts.values()})
+        existing = {
+            (group_id, artifact_id, version, filename, sha256): pk
+            for group_id, artifact_id, version, filename, sha256, pk in MavenMetadata.objects.filter(
+                _pulp_domain=pulp_domain, sha256__in=sha256s
+            ).values_list("group_id", "artifact_id", "version", "filename", "sha256", "pk")
+        }
+        units = {}
+        for (group_id, artifact_id, version), filename, path, _ in chunk:
+            key = (group_id, artifact_id, version, filename, artifacts[path].sha256)
+            if key not in existing and key not in units:
+                units[key] = MavenMetadata(
+                    group_id=group_id,
+                    artifact_id=artifact_id,
+                    version=version,
+                    filename=filename,
+                    sha256=key[-1],
+                    _pulp_domain=pulp_domain,
+                    pulp_domain=pulp_domain,
                 )
-        except IntegrityError:
-            pass
+        for key, unit in zip(units, bulk_create_content(units.values())):
+            existing[key] = unit.pk
 
-        pks.append(metadata_content.pk)
-
+        content_artifacts = {}
+        for (group_id, artifact_id, version), filename, path, _ in chunk:
+            pk = existing[(group_id, artifact_id, version, filename, artifacts[path].sha256)]
+            content_artifacts[(pk, path)] = ContentArtifact(
+                artifact=artifacts[path], content_id=pk, relative_path=path
+            )
+            pks.append(pk)
+        for content_id, path in ContentArtifact.objects.filter(
+            content_id__in={pk for pk, _ in content_artifacts}
+        ).values_list("content_id", "relative_path"):
+            content_artifacts.pop((content_id, path), None)
+        # A stable insert order avoids deadlocks with concurrent tasks. ContentArtifact.sort_key
+        # would fetch each unit's content, so sort on the (content, path) key instead.
+        ContentArtifact.objects.bulk_get_or_create(
+            content_artifacts[key] for key in sorted(content_artifacts, key=str)
+        )
     return pks
 
 
-def _create_metadata_content(group_id, artifact_id, versions, pulp_domain):
-    """Build repo-level maven-metadata.xml and checksums for a (group_id, artifact_id) pair.
-
-    Returns a list of MavenMetadata primary keys.
-    """
+def _metadata_entry(group_id, artifact_id, versions):
+    """Return the _save_metadata_batch entry for a repo-level maven-metadata.xml."""
     metadata_xml = _build_maven_metadata_xml(group_id, artifact_id, versions)
-    group_path = group_id.replace(".", "/")
-    base_path = f"{group_path}/{artifact_id}/maven-metadata.xml"
-    return _save_metadata_content(group_id, artifact_id, None, base_path, metadata_xml, pulp_domain)
+    base_path = f"{group_id.replace('.', '/')}/{artifact_id}/maven-metadata.xml"
+    return group_id, artifact_id, None, base_path, metadata_xml
+
+
+def _version_level_metadata_entry(group_id, artifact_id, version, filenames):
+    """Return the _save_metadata_batch entry for a SNAPSHOT version's maven-metadata.xml."""
+    metadata_xml = _build_version_level_metadata_xml(group_id, artifact_id, version, filenames)
+    base_path = f"{group_id.replace('.', '/')}/{artifact_id}/{version}/maven-metadata.xml"
+    return group_id, artifact_id, version, base_path, metadata_xml
 
 
 def _build_maven_metadata_xml(group_id, artifact_id, versions):
@@ -640,19 +643,6 @@ def _build_version_level_metadata_xml(group_id, artifact_id, version, filenames)
         b'<?xml version="1.0" encoding="UTF-8"?>\n'
         + tostring(root, encoding="unicode").encode("utf-8")
         + b"\n"
-    )
-
-
-def _create_version_level_metadata_content(group_id, artifact_id, version, filenames, pulp_domain):
-    """Build version-level maven-metadata.xml and checksums for a SNAPSHOT version.
-
-    Returns a list of MavenMetadata primary keys.
-    """
-    metadata_xml = _build_version_level_metadata_xml(group_id, artifact_id, version, filenames)
-    group_path = group_id.replace(".", "/")
-    base_path = f"{group_path}/{artifact_id}/{version}/maven-metadata.xml"
-    return _save_metadata_content(
-        group_id, artifact_id, version, base_path, metadata_xml, pulp_domain
     )
 
 
