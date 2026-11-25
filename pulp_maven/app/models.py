@@ -17,7 +17,6 @@ from pulpcore.plugin.models import (
     Remote,
     Repository,
 )
-from pulpcore.plugin.repo_version_utils import remove_duplicates
 from pulpcore.plugin.util import get_domain_pk
 
 from pulp_maven.app.bloom import (
@@ -25,6 +24,7 @@ from pulp_maven.app.bloom import (
     bloom_filter_might_contain,
     delete_bloom_filter,
 )
+from pulp_maven.app.version_utils import remove_duplicates
 
 logger = getLogger(__name__)
 
