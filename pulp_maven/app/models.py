@@ -197,7 +197,7 @@ class MavenMetadata(MavenContentMixin, Content):
         if path.isabs(relative_path):
             raise ValueError(_("Relative path can't start with '/'."))
 
-        _, _, _, f_name = MavenMetadata.group_artifact_version_filename(relative_path)
+        f_name = MavenMetadata.group_artifact_version_filename(relative_path)[3]
 
         if f_name == "maven-metadata.xml":
             try:
@@ -228,9 +228,9 @@ class MavenMetadata(MavenContentMixin, Content):
                     relative_path
                 )
             else:
-                group_id, artifact_id, version, _ = MavenMetadata.group_artifact_version_filename(
+                group_id, artifact_id, version = MavenMetadata.group_artifact_version_filename(
                     relative_path
-                )
+                )[:3]
 
         return MavenMetadata(
             group_id=group_id,
