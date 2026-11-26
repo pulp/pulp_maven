@@ -13,7 +13,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from pulpcore.plugin.models import Domain
+from pulpcore.plugin.models import Artifact, Domain
 
 from pulp_maven.app.path_index.content import artifact, indexed_response
 from pulp_maven.app.path_index.format import Entry
@@ -23,6 +23,7 @@ from pulp_maven.app.path_index.http import IndexedArtifactResponse
 class SizedBytes(io.BytesIO):
     def __init__(self, raw):
         super().__init__(raw)
+        self.name = "artifact/test"
         self.size = len(raw)
         self.close_finished = threading.Event()
 
@@ -37,6 +38,20 @@ def entry(raw=b"<html>listing</html>"):
 
 def domain():
     return Domain(pk=uuid4(), name="test", storage_class="s3", storage_settings={})
+
+
+def served_artifact(file):
+    """
+    An unsaved Artifact whose file and domain storage both serve `file`.
+
+    Older pulpcore streams `artifact.file`; newer pulpcore opens `file.name` through
+    `artifact.pulp_domain.get_storage()`. The domain is preloaded, as in production.
+    """
+    scope = domain()
+    scope.get_storage = lambda: SimpleNamespace(open=lambda name, mode="rb": file)
+    obj = Artifact(pulp_domain=scope)
+    obj.file = file
+    return obj
 
 
 def test_storage_namespace_changes_invalidate_cached_profile(settings):
@@ -87,7 +102,7 @@ def test_html_paths_stream_inline_with_cache_headers(path, backend, settings):
             patch("pulp_maven.app.path_index.content.get_domain", return_value=scope),
             patch(
                 "pulp_maven.app.path_index.content.artifact",
-                return_value=SimpleNamespace(file=stream),
+                return_value=served_artifact(stream),
             ),
             patch(
                 "pulp_maven.app.path_index.content.Handler.response_headers",
@@ -175,7 +190,7 @@ def test_if_none_match_precedes_if_modified_since():
 
         async def handle(request):
             return IndexedArtifactResponse(
-                SimpleNamespace(file=stream),
+                served_artifact(stream),
                 entry(raw),
                 domain(),
                 "index.html",
@@ -274,9 +289,7 @@ def test_indexed_artifact_streaming_ranges_and_head():
         async def handle(request):
             file = SizedBytes(raw)
             opened.append(file)
-            return IndexedArtifactResponse(
-                SimpleNamespace(file=file), entry(raw), scope, "lib.jar", {}
-            )
+            return IndexedArtifactResponse(served_artifact(file), entry(raw), scope, "lib.jar", {})
 
         app = web.Application()
         app.router.add_get("/", handle)
