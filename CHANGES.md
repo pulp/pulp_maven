@@ -8,6 +8,28 @@
 
 [//]: # (towncrier release notes start)
 
+## 0.38.0 (2026-11-26) {: #0.38.0 }
+
+#### Features {: #0.38.0-feature }
+
+- Sped up creating repository versions in large repositories. Duplicate removal skips content types
+  whose uniqueness already rules out duplicates, and package, maven-metadata.xml and prefixes.txt
+  updates run a fixed number of set-based queries instead of one or more per affected artifact.
+
+#### Bugfixes {: #0.38.0-bugfix }
+
+- Made `InvalidIndex` a `PulpException` subclass so it no longer triggers a pulpcore deprecation warning when raised during task execution.
+  [#535](https://github.com/pulp/pulp_maven/issues/535)
+- Fixed a crash in multi-domain setups where `_save_prefixes_txt` and `_save_metadata_content` raised `MavenMetadata.DoesNotExist` when two domains produced metadata with identical content (same sha256). The global `unique=True` constraint on `MavenMetadata.sha256` has been replaced with a domain-scoped uniqueness via the existing `unique_together` constraint.
+  [#557](https://github.com/pulp/pulp_maven/issues/557)
+- Rebuild the process-global ``default_storage`` around each unit test so storage state mutated by one test (e.g. patching ``location`` on the default domain) cannot leak into later tests under pytest 9.2.
+  [#566](https://github.com/pulp/pulp_maven/issues/566)
+- Made incremental Maven index-page generation skip ancestor directories whose set of immediate children is unchanged, so adding content to a large repository no longer re-renders unrelated directory index pages.
+  [#575](https://github.com/pulp/pulp_maven/issues/575)
+- Fixed uploads to path-indexed repositories in domains with their own storage failing with "Generated directory coverage is incomplete" after the first upload. Existing index pages are now read from the repository domain's storage, and pages that cannot be read are rebuilt from repository content instead of being dropped.
+
+---
+
 ## 0.37.2 (2026-11-05) {: #0.37.2 }
 
 #### Bugfixes {: #0.37.2-bugfix }
